@@ -1,0 +1,6 @@
+{
+  "name": "Bela Mulher",
+  "description": "Aplicativo de salão de beleza moderno e sofisticado.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
