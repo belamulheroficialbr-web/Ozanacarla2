@@ -11,6 +11,7 @@ import {Vitrine} from './components/Vitrine';
 import {AdminPanel} from './components/admin/AdminPanel';
 import {ProfessionalPanel} from './components/professional/ProfessionalPanel';
 import {supabase} from './lib/supabase';
+import {dataService} from './lib/data';
 import {useAuth} from './context/AuthContext';
 import {Login} from './components/auth/Login';
 import {CalculatorModal} from './components/tools/Calculator';
@@ -37,11 +38,10 @@ export default function App() {
   useEffect(() => {
     async function checkSchema() {
       try {
-        const schema = await dataService.verifyDatabaseSchema();
-        const missing = Object.entries(schema).filter(([_, exists]) => !exists).map(([table]) => table);
-        setConnectionStatus(missing.length > 0 ? `Missing: ${missing.join(', ')}` : 'Connected & Tables OK');
+        const result = await dataService.testConnection();
+        setConnectionStatus(result.message);
       } catch (e) {
-        setConnectionStatus('Connection Failed');
+        setConnectionStatus('Erro ao testar conexão com Supabase');
       }
     }
     checkSchema();

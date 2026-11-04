@@ -41,9 +41,24 @@ export const dataService = {
     
     for (const table of requiredTables) {
       const {error} = await supabase.from(table).select('*').limit(1);
-      // If error code is not '42P01' (table does not exist), table likely exists or is restricted by RLS
       results[table] = !error || error.code !== '42P01';
     }
     return results;
+  },
+
+  async testConnection() {
+    try {
+      const { error } = await supabase.auth.getSession();
+      if (error) {
+        return { success: false, message: error.message };
+      }
+      const { error: queryError } = await supabase.from('profiles').select('id').limit(1);
+      if (queryError && queryError.message.includes('Failed to fetch')) {
+        return { success: false, message: 'URL ou Chave do Supabase incorretas (Failed to fetch).' };
+      }
+      return { success: true, message: 'Conexão com o Supabase validada com sucesso!' };
+    } catch (err: any) {
+      return { success: false, message: err?.message || 'Erro ao testar conexão.' };
+    }
   }
 };

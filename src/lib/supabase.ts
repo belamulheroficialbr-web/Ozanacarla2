@@ -1,10 +1,23 @@
 import {createClient} from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const getEnvOrStorage = (key: string, envKey: string) => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem(key);
+    if (stored) return stored;
+  }
+  return import.meta.env[envKey] || '';
+};
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Supabase variables not found in environment.");
+const supabaseUrl = getEnvOrStorage('SUPABASE_URL', 'VITE_SUPABASE_URL');
+const supabaseAnonKey = getEnvOrStorage('SUPABASE_ANON_KEY', 'VITE_SUPABASE_ANON_KEY');
+
+export const supabase = createClient(
+  supabaseUrl && !supabaseUrl.includes('YOUR_') ? supabaseUrl : 'https://placeholder.supabase.co',
+  supabaseAnonKey && !supabaseAnonKey.includes('YOUR_') ? supabaseAnonKey : 'placeholder-key'
+);
+
+export function setSupabaseConfig(url: string, key: string) {
+  localStorage.setItem('SUPABASE_URL', url);
+  localStorage.setItem('SUPABASE_ANON_KEY', key);
+  window.location.reload();
 }
-
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');

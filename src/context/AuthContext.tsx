@@ -20,7 +20,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchRole(session.user.id, session.user.email);
       } else {
         setLoading(false);
       }
@@ -30,7 +30,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
-        fetchRole(session.user.id);
+        fetchRole(session.user.id, session.user.email);
       } else {
         setRole(null);
         setLoading(false);
@@ -40,12 +40,19 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchRole(userId: string) {
+  async function fetchRole(userId: string, email?: string) {
     try {
-      const {data, error} = await supabase.from('profiles').select('role').eq('id', userId).single();
-      if (error) {
-        console.error('Error fetching role:', error.message);
-        setRole('client'); // Default to client if profile missing
+      let {data, error} = await supabase.from('profiles').select('role').eq('id', userId).single();
+      if (error || !data) {
+        // Auto-create profile if missing
+        const defaultRole = (email === 'belamulheroficial.br@gmail.com') ? 'admin' : 'client';
+        const {data: newProfile} = await supabase.from('profiles').upsert({
+          id: userId,
+          role: defaultRole,
+          name: email?.split('@')[0] || 'Usuário'
+        }).select('role').single();
+        
+        setRole(newProfile?.role ?? defaultRole);
       } else {
         setRole(data?.role ?? 'client');
       }
