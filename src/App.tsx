@@ -15,6 +15,8 @@ import {useAuth} from './context/AuthContext';
 import {Login} from './components/auth/Login';
 import {CalculatorModal} from './components/tools/Calculator';
 import {PWAInstallButton} from './components/tools/PWAInstallButton';
+import {ProfileEditor} from './components/client/ProfileEditor';
+
 
 export default function App() {
   const [activePanel, setActivePanel] = useState('home');
@@ -22,6 +24,14 @@ export default function App() {
   const [showLogin, setShowLogin] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const {user, role, loading} = useAuth();
+
+  useEffect(() => {
+    if (!loading && user) {
+        if (role === 'admin') setActivePanel('admin');
+        else if (role === 'professional') setActivePanel('prof');
+        else setActivePanel('home');
+    }
+  }, [loading, user, role]);
   const [connectionStatus, setConnectionStatus] = useState<string>('Checking...');
 
   useEffect(() => {
@@ -104,10 +114,27 @@ export default function App() {
           </>
         )}
         {activePanel === 'vitrine' && <Vitrine />}
-        {activePanel === 'cliente' && user && <div className="text-center py-10">Painel do Cliente</div>}
+        {activePanel === 'cliente' && user && (
+            <div className="space-y-6">
+                <ProfileEditor />
+                <AppointmentManager />
+            </div>
+        )}
+
         {activePanel === 'chat' && user && <div className="text-center py-10">Chat de Atendimento</div>}
-        {activePanel === 'admin' && role === 'admin' && <AdminPanel />}
-        {activePanel === 'prof' && (role === 'professional' || role === 'admin') && <ProfessionalPanel />}
+        {activePanel === 'admin' && role === 'admin' && (
+            <div className="space-y-6">
+                <AdminPanel />
+                <AppointmentManager />
+            </div>
+        )}
+        {activePanel === 'prof' && (role === 'professional' || role === 'admin') && (
+            <div className="space-y-6">
+                <ProfessionalPanel />
+                <AppointmentManager />
+            </div>
+        )}
+
       </main>
 
       {/* Footer Nav */}

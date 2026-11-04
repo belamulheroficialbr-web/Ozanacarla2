@@ -3,8 +3,13 @@ import {supabase} from './supabase';
 // Helper for real-time and auth-safe data fetching
 export const dataService = {
   // Profiles
-  async getProfile(userId: string) {
-    return await supabase.from('profiles').select('*').eq('id', userId).single();
+  async getProfiles(roleFilter?: string) {
+    let query = supabase.from('profiles').select('*');
+    if (roleFilter) query = query.eq('role', roleFilter);
+    return await query;
+  },
+  async updateProfile(userId: string, profileData: any) {
+    return await supabase.from('profiles').update(profileData).eq('id', userId);
   },
 
   // Vitrine/Services
@@ -17,10 +22,16 @@ export const dataService = {
 
   // Appointments
   async getAppointments(userId: string, role: string) {
-    let query = supabase.from('appointments').select('*, services(name), profiles(name)');
+    let query = supabase.from('appointments').select('*, services(name), client:profiles!client_id(name), professional:profiles!professional_id(name)');
     if (role === 'client') query = query.eq('client_id', userId);
     else if (role === 'professional') query = query.eq('professional_id', userId);
     return await query;
+  },
+  async createAppointment(appointment: any) {
+    return await supabase.from('appointments').insert([appointment]);
+  },
+  async updateAppointmentStatus(id: string, status: string) {
+    return await supabase.from('appointments').update({status}).eq('id', id);
   },
 
   // Financial

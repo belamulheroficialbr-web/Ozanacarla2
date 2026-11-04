@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {LayoutDashboard, Briefcase, FileText, Calendar, Users, Scissors, DollarSign, Settings, ShoppingBag, Palette} from 'lucide-react';
 import {VitrineManager} from './VitrineManager';
 import {CustomizationPanel} from './CustomizationPanel';
+import {ClientManager} from './ClientManager';
 
 const adminModules = [
   {id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard},
@@ -39,6 +40,8 @@ export function AdminPanel() {
             <VitrineManager />
           ) : activeModule === 'personalizacao' ? (
             <CustomizationPanel />
+          ) : activeModule === 'clientes' ? (
+            <ClientManager />
           ) : (
             <p className="text-gray-400 text-sm">O módulo de {activeModule} ainda não possui dados conectados. Por favor, configure um banco de dados para visualizar informações reais.</p>
           )}

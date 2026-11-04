@@ -41,9 +41,20 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   }, []);
 
   async function fetchRole(userId: string) {
-    const {data} = await supabase.from('profiles').select('role').eq('id', userId).single();
-    setRole(data?.role ?? 'client');
-    setLoading(false);
+    try {
+      const {data, error} = await supabase.from('profiles').select('role').eq('id', userId).single();
+      if (error) {
+        console.error('Error fetching role:', error.message);
+        setRole('client'); // Default to client if profile missing
+      } else {
+        setRole(data?.role ?? 'client');
+      }
+    } catch (e) {
+      console.error('Role fetch exception:', e);
+      setRole('client');
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
