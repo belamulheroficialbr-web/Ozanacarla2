@@ -9,10 +9,10 @@ export function ProfileEditor() {
 
   useEffect(() => {
     if (user) {
-      dataService.getProfile(user.id).then(({data}) => {
-        if (data) {
-          setProfile(data);
-          setName(data.name || '');
+      dataService.getProfile(user.id).then((res: any) => {
+        if (res?.data) {
+          setProfile(res.data);
+          setName(res.data.name || '');
         }
       });
     }

@@ -8,6 +8,14 @@ export const dataService = {
     if (roleFilter) query = query.eq('role', roleFilter);
     return await query;
   },
+  async getProfile(userId: string) {
+    try {
+      const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      return res;
+    } catch (err: any) {
+      return { data: null, error: err };
+    }
+  },
   async updateProfile(userId: string, profileData: any) {
     return await supabase.from('profiles').update(profileData).eq('id', userId);
   },
@@ -22,10 +30,15 @@ export const dataService = {
 
   // Appointments
   async getAppointments(userId: string, role: string) {
-    let query = supabase.from('appointments').select('*, services(name), client:profiles!client_id(name), professional:profiles!professional_id(name)');
-    if (role === 'client') query = query.eq('client_id', userId);
-    else if (role === 'professional') query = query.eq('professional_id', userId);
-    return await query;
+    try {
+      let query = supabase.from('appointments').select('*');
+      if (role === 'client') query = query.eq('client_id', userId);
+      else if (role === 'professional') query = query.eq('professional_id', userId);
+      const res = await query;
+      return res;
+    } catch (err: any) {
+      return { data: [], error: err };
+    }
   },
   async createAppointment(appointment: any) {
     return await supabase.from('appointments').insert([appointment]);
@@ -48,17 +61,24 @@ export const dataService = {
 
   async testConnection() {
     try {
-      const { error } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        return { success: false, message: `Erro Auth: ${sessionError.message}` };
+      }
+      
+      const { data, error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
       if (error) {
-        return { success: false, message: error.message };
+        if (error.message?.includes('Failed to fetch')) {
+          return { success: false, message: 'Falha de conexão com a URL do Supabase (Failed to fetch).' };
+        }
+        if (error.code === 'PGRST301' || error.message?.includes('JWT') || error.message?.includes('apikey')) {
+          return { success: false, message: 'Chave do Supabase inválida ou rejeitada.' };
+        }
+        return { success: true, message: `Conectado ao Supabase (Tabela: ${error.message})` };
       }
-      const { error: queryError } = await supabase.from('profiles').select('id').limit(1);
-      if (queryError && queryError.message.includes('Failed to fetch')) {
-        return { success: false, message: 'URL ou Chave do Supabase incorretas (Failed to fetch).' };
-      }
-      return { success: true, message: 'Conexão com o Supabase validada com sucesso!' };
+      return { success: true, message: 'Conectado ao Supabase com sucesso!' };
     } catch (err: any) {
-      return { success: false, message: err?.message || 'Erro ao testar conexão.' };
+      return { success: false, message: `Erro: ${err?.message || 'Falha de rede'}` };
     }
   }
 };
