@@ -39,6 +39,8 @@ const INITIAL_PRODUCTS = [
     sale_price: 45,
     quantity: 12,
     min_quantity: 5,
+    image_url: '/src/assets/images/service_showcase_2_1793799836229.jpg',
+    description: 'Kit de nutrição profunda para restauração dos fios danificados.',
     updated_at: new Date().toISOString()
   },
   {
@@ -49,6 +51,8 @@ const INITIAL_PRODUCTS = [
     sale_price: 35,
     quantity: 3,
     min_quantity: 5,
+    image_url: '/src/assets/images/service_showcase_1_1793799836251.jpg',
+    description: 'Esmalte de altíssima durabilidade com brilho dourado acetinado.',
     updated_at: new Date().toISOString()
   },
   {
@@ -59,6 +63,8 @@ const INITIAL_PRODUCTS = [
     sale_price: 60,
     quantity: 8,
     min_quantity: 4,
+    image_url: '/src/assets/images/carousel_salon_1_1793799835801.jpg',
+    description: 'Sérum finalizador nutritivo com óleos essenciais e aroma de baunilha.',
     updated_at: new Date().toISOString()
   }
 ];
@@ -84,31 +90,222 @@ const INITIAL_MOVEMENTS = [
   }
 ];
 
+const INITIAL_COUPONS = [
+  {
+    id: 'coup-1',
+    code: 'BELA10',
+    discount_type: 'percent',
+    discount_value: 10,
+    min_purchase: 50,
+    is_active: true,
+    expires_at: '2026-12-31'
+  },
+  {
+    id: 'coup-2',
+    code: 'BELA20',
+    discount_type: 'fixed',
+    discount_value: 20,
+    min_purchase: 100,
+    is_active: true,
+    expires_at: '2026-12-31'
+  },
+  {
+    id: 'coup-3',
+    code: 'PRIMEIRACOMPRA',
+    discount_type: 'percent',
+    discount_value: 15,
+    min_purchase: 40,
+    is_active: true,
+    expires_at: '2026-12-31'
+  }
+];
+
+const INITIAL_BANNERS = [
+  {
+    id: 'ban-1',
+    title: 'Transformação Capilar Premium',
+    subtitle: 'Agende com nossos especialistas e ganhe hidratação de brinde',
+    image_url: '/src/assets/images/carousel_salon_1_1793799835801.jpg',
+    link_type: 'service',
+    is_active: true
+  },
+  {
+    id: 'ban-2',
+    title: 'Esmaltação em Gel Duradoura',
+    subtitle: 'Cores exclusivas Bela Mulher para arrasar em qualquer ocasião',
+    image_url: '/src/assets/images/carousel_salon_2_1793799837071.jpg',
+    link_type: 'product',
+    is_active: true
+  }
+];
+
+const INITIAL_VIDEOS = [
+  {
+    id: 'vid-1',
+    title: 'Bastidores: Tratamento Ouro 24k',
+    video_url: 'https://assets.mixkit.co/videos/preview/mixkit-stylist-washing-a-clients-hair-in-a-salon-43407-large.mp4',
+    thumbnail: '/src/assets/images/vertical_salon_style_1_1793799836206.jpg',
+    author: 'Equipe Bela Mulher'
+  },
+  {
+    id: 'vid-2',
+    title: 'Resultado Iluminação de Mechas',
+    video_url: 'https://assets.mixkit.co/videos/preview/mixkit-hairdresser-brushing-a-client-s-hair-43410-large.mp4',
+    thumbnail: '/src/assets/images/carousel_salon_1_1793799835801.jpg',
+    author: 'Carla Silva - Master Hair'
+  }
+];
+
+const INITIAL_ORDERS: any[] = [
+  {
+    id: 'ord-1001',
+    client_name: 'Ana Maria',
+    client_phone: '(11) 98888-7777',
+    items: [
+      {id: 'prod-1', name: 'Kit Ampolas de Nutrição Capilar', quantity: 1, price: 45}
+    ],
+    total_amount: 45,
+    payment_method: 'PIX',
+    payment_status: 'pago',
+    delivery_status: 'entregue',
+    created_at: new Date(Date.now() - 86400000).toISOString()
+  }
+];
+
 export const dataService = {
   // Profiles
   async getProfiles(roleFilter?: string) {
-    let query = supabase.from('profiles').select('*');
-    if (roleFilter) query = query.eq('role', roleFilter);
-    return await query;
+    try {
+      let query = supabase.from('profiles').select('*');
+      if (roleFilter) query = query.eq('role', roleFilter);
+      const res = await query;
+      if (res.data && res.data.length > 0) return res;
+    } catch {}
+
+    // Fallback default profiles if DB empty
+    if (roleFilter === 'professional') {
+      return {
+        data: [
+          {
+            id: 'prof-1',
+            name: 'Carla Silva',
+            email: 'carla@belamulher.com',
+            role: 'professional',
+            phone: '(11) 97777-1111',
+            bio: 'Especialista em Mechas, Balayage e Nutrição Capilar Avançada.',
+            specialties: 'Cabelos, Colorimetria',
+            avatar_url: '/src/assets/images/carousel_salon_1_1793799835801.jpg'
+          },
+          {
+            id: 'prof-2',
+            name: 'Juliana Mendes',
+            email: 'juliana@belamulher.com',
+            role: 'professional',
+            phone: '(11) 97777-2222',
+            bio: 'Master Nail Designer em Esmaltação Gel e Spa de Mãos.',
+            specialties: 'Unhas, Nail Art',
+            avatar_url: '/src/assets/images/service_showcase_1_1793799836251.jpg'
+          }
+        ],
+        error: null
+      };
+    }
+    return {data: [], error: null};
   },
+
   async getProfile(userId: string) {
     try {
       const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-      return res;
-    } catch (err: any) {
-      return { data: null, error: err };
-    }
-  },
-  async updateProfile(userId: string, profileData: any) {
-    return await supabase.from('profiles').update(profileData).eq('id', userId);
+      if (res.data) return res;
+    } catch (err: any) {}
+
+    // LocalStorage fallback for Profile
+    const stored = localStorage.getItem(`BELA_PROFILE_${userId}`);
+    if (stored) return {data: JSON.parse(stored), error: null};
+    return {data: null, error: null};
   },
 
-  // Vitrine/Services
-  async getServices() {
-    return await supabase.from('services').select('*');
+  async updateProfile(userId: string, profileData: any) {
+    try {
+      const res = await supabase.from('profiles').update(profileData).eq('id', userId).select('*');
+      if (res.data && res.data.length > 0) return res;
+    } catch {}
+
+    const stored = localStorage.getItem(`BELA_PROFILE_${userId}`);
+    const existing = stored ? JSON.parse(stored) : {};
+    const updated = {...existing, ...profileData, id: userId};
+    localStorage.setItem(`BELA_PROFILE_${userId}`, JSON.stringify(updated));
+    return {data: [updated], error: null};
   },
+
+  // Client Medical & Allergies Profile
+  async getClientMedicalProfile(userId: string) {
+    const stored = localStorage.getItem(`BELA_MEDICAL_${userId}`);
+    if (stored) return JSON.parse(stored);
+    return {
+      allergies: '',
+      sensitivities: '',
+      reactive_products: '',
+      care_preferences: '',
+      favorite_professionals: []
+    };
+  },
+
+  async updateClientMedicalProfile(userId: string, data: any) {
+    localStorage.setItem(`BELA_MEDICAL_${userId}`, JSON.stringify(data));
+    return {success: true};
+  },
+
+  // Services
+  async getServices() {
+    try {
+      const {data, error} = await supabase.from('services').select('*');
+      if (!error && data && data.length > 0) return {data, error: null};
+    } catch {}
+
+    const defaultServices = [
+      {
+        id: 'serv-1',
+        name: 'Corte Feminino & Escova Modeladora',
+        price: 120,
+        category: 'Cabelos',
+        duration_minutes: 60,
+        description: 'Corte personalizado conforme seu formato de rosto com finalização em escova.'
+      },
+      {
+        id: 'serv-2',
+        name: 'Hidratação & Reconstrução Ouro 24k',
+        price: 180,
+        category: 'Tratamentos',
+        duration_minutes: 90,
+        description: 'Tratamento intensivo para cabelos ressecados ou quimicamente tratados.'
+      },
+      {
+        id: 'serv-3',
+        name: 'Manicure & Esmaltação em Gel',
+        price: 75,
+        category: 'Unhas',
+        duration_minutes: 45,
+        description: 'Cutilagem delicada e esmaltação gel de longa duração.'
+      },
+      {
+        id: 'serv-4',
+        name: 'Design de Sobrancelhas + Henna',
+        price: 65,
+        category: 'Estética',
+        duration_minutes: 40,
+        description: 'Mapeamento facial e pigmentação com henna natural.'
+      }
+    ];
+    return {data: defaultServices, error: null};
+  },
+
   async addService(service: any) {
-    return await supabase.from('services').insert([service]);
+    try {
+      const res = await supabase.from('services').insert([service]).select('*');
+      if (res.data) return res;
+    } catch {}
+    return {data: [{...service, id: `serv-${Date.now()}`}], error: null};
   },
 
   // Appointments
@@ -118,28 +315,52 @@ export const dataService = {
       if (role === 'client') query = query.eq('client_id', userId);
       else if (role === 'professional') query = query.eq('professional_id', userId);
       const res = await query;
-      return res;
-    } catch (err: any) {
-      return { data: [], error: err };
+      if (res.data && res.data.length > 0) return res;
+    } catch (err: any) {}
+
+    const stored = localStorage.getItem('BELA_APPOINTMENTS');
+    const list = stored ? JSON.parse(stored) : [];
+    if (role === 'client') {
+      const filtered = list.filter((a: any) => a.client_id === userId);
+      return {data: filtered, error: null};
     }
-  },
-  async createAppointment(appointment: any) {
-    return await supabase.from('appointments').insert([appointment]);
-  },
-  async updateAppointmentStatus(id: string, status: string) {
-    return await supabase.from('appointments').update({status}).eq('id', id);
+    return {data: list, error: null};
   },
 
-  // Transactions / Cash Flow (Supabase with LocalStorage Fallback)
+  async createAppointment(appointment: any) {
+    const newApp = {...appointment, id: `app-${Date.now()}`};
+    try {
+      const res = await supabase.from('appointments').insert([appointment]).select('*');
+      if (res.data) return res;
+    } catch {}
+
+    const stored = localStorage.getItem('BELA_APPOINTMENTS');
+    const list = stored ? JSON.parse(stored) : [];
+    const updated = [newApp, ...list];
+    localStorage.setItem('BELA_APPOINTMENTS', JSON.stringify(updated));
+    return {data: [newApp], error: null};
+  },
+
+  async updateAppointmentStatus(id: string, status: string) {
+    try {
+      const res = await supabase.from('appointments').update({status}).eq('id', id);
+      if (!res.error) return res;
+    } catch {}
+
+    const stored = localStorage.getItem('BELA_APPOINTMENTS');
+    const list = stored ? JSON.parse(stored) : [];
+    const updated = list.map((a: any) => a.id === id ? {...a, status} : a);
+    localStorage.setItem('BELA_APPOINTMENTS', JSON.stringify(updated));
+    return {error: null};
+  },
+
+  // Transactions / Cash Flow
   async getTransactions() {
     try {
       const {data, error} = await supabase.from('transactions').select('*').order('date', {ascending: false});
-      if (!error && data && data.length > 0) {
-        return {data, error: null};
-      }
+      if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
-    // Fallback LocalStorage
     const stored = localStorage.getItem('BELA_TRANSACTIONS');
     const parsed = stored ? JSON.parse(stored) : INITIAL_TRANSACTIONS;
     if (!stored) localStorage.setItem('BELA_TRANSACTIONS', JSON.stringify(INITIAL_TRANSACTIONS));
@@ -186,13 +407,11 @@ export const dataService = {
     return {error: null};
   },
 
-  // Products / Inventory (Supabase with LocalStorage Fallback)
+  // Products / Inventory
   async getProducts() {
     try {
       const {data, error} = await supabase.from('products').select('*');
-      if (!error && data && data.length > 0) {
-        return {data, error: null};
-      }
+      if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
     const stored = localStorage.getItem('BELA_PRODUCTS');
@@ -245,9 +464,7 @@ export const dataService = {
   async getStockMovements() {
     try {
       const {data, error} = await supabase.from('stock_movements').select('*').order('date', {ascending: false});
-      if (!error && data && data.length > 0) {
-        return {data, error: null};
-      }
+      if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
     const stored = localStorage.getItem('BELA_STOCK_MOVEMENTS');
@@ -270,11 +487,169 @@ export const dataService = {
     return {data: [newMov], error: null};
   },
 
-  // Financial
+  // Coupons
+  async getCoupons() {
+    const stored = localStorage.getItem('BELA_COUPONS');
+    const parsed = stored ? JSON.parse(stored) : INITIAL_COUPONS;
+    if (!stored) localStorage.setItem('BELA_COUPONS', JSON.stringify(INITIAL_COUPONS));
+    return {data: parsed, error: null};
+  },
+
+  async addCoupon(coupon: any) {
+    const newCoup = {...coupon, id: `coup-${Date.now()}`};
+    const stored = localStorage.getItem('BELA_COUPONS');
+    const list = stored ? JSON.parse(stored) : INITIAL_COUPONS;
+    const updated = [newCoup, ...list];
+    localStorage.setItem('BELA_COUPONS', JSON.stringify(updated));
+    return {data: [newCoup], error: null};
+  },
+
+  async updateCoupon(id: string, updates: any) {
+    const stored = localStorage.getItem('BELA_COUPONS');
+    const list = stored ? JSON.parse(stored) : INITIAL_COUPONS;
+    const updated = list.map((c: any) => c.id === id ? {...c, ...updates} : c);
+    localStorage.setItem('BELA_COUPONS', JSON.stringify(updated));
+    return {data: updated, error: null};
+  },
+
+  async deleteCoupon(id: string) {
+    const stored = localStorage.getItem('BELA_COUPONS');
+    const list = stored ? JSON.parse(stored) : INITIAL_COUPONS;
+    const updated = list.filter((c: any) => c.id !== id);
+    localStorage.setItem('BELA_COUPONS', JSON.stringify(updated));
+    return {error: null};
+  },
+
+  // Orders
+  async getOrders(userId?: string) {
+    const stored = localStorage.getItem('BELA_ORDERS');
+    const list: any[] = stored ? JSON.parse(stored) : INITIAL_ORDERS;
+    if (!stored) localStorage.setItem('BELA_ORDERS', JSON.stringify(INITIAL_ORDERS));
+    if (userId) {
+      const filtered = list.filter(o => o.client_id === userId || o.client_email === userId);
+      return {data: filtered, error: null};
+    }
+    return {data: list, error: null};
+  },
+
+  async addOrder(order: any) {
+    const newOrd = {
+      ...order,
+      id: `ord-${Math.floor(1000 + Math.random() * 9000)}`,
+      created_at: new Date().toISOString()
+    };
+    const stored = localStorage.getItem('BELA_ORDERS');
+    const list = stored ? JSON.parse(stored) : INITIAL_ORDERS;
+    const updated = [newOrd, ...list];
+    localStorage.setItem('BELA_ORDERS', JSON.stringify(updated));
+
+    // Automated cash flow transaction entry if payment confirmed
+    if (newOrd.payment_status === 'pago') {
+      await this.addTransaction({
+        description: `Venda Sacola #${newOrd.id} - ${newOrd.client_name}`,
+        category: 'Venda de Produtos',
+        type: 'entrada',
+        amount: newOrd.total_amount,
+        date: new Date().toISOString(),
+        payment_method: newOrd.payment_method
+      });
+    }
+
+    return {data: [newOrd], error: null};
+  },
+
+  async updateOrderStatus(id: string, statusUpdates: {payment_status?: string; delivery_status?: string}) {
+    const stored = localStorage.getItem('BELA_ORDERS');
+    const list = stored ? JSON.parse(stored) : INITIAL_ORDERS;
+    const updated = list.map((o: any) => o.id === id ? {...o, ...statusUpdates} : o);
+    localStorage.setItem('BELA_ORDERS', JSON.stringify(updated));
+    return {data: updated, error: null};
+  },
+
+  // Banners & 9:16 Video Stories
+  async getBanners() {
+    const stored = localStorage.getItem('BELA_BANNERS');
+    const list = stored ? JSON.parse(stored) : INITIAL_BANNERS;
+    if (!stored) localStorage.setItem('BELA_BANNERS', JSON.stringify(INITIAL_BANNERS));
+    return {data: list, error: null};
+  },
+
+  async addBanner(banner: any) {
+    const newBan = {...banner, id: `ban-${Date.now()}`};
+    const stored = localStorage.getItem('BELA_BANNERS');
+    const list = stored ? JSON.parse(stored) : INITIAL_BANNERS;
+    const updated = [newBan, ...list];
+    localStorage.setItem('BELA_BANNERS', JSON.stringify(updated));
+    return {data: [newBan], error: null};
+  },
+
+  async deleteBanner(id: string) {
+    const stored = localStorage.getItem('BELA_BANNERS');
+    const list = stored ? JSON.parse(stored) : INITIAL_BANNERS;
+    const updated = list.filter((b: any) => b.id !== id);
+    localStorage.setItem('BELA_BANNERS', JSON.stringify(updated));
+    return {error: null};
+  },
+
+  async getVideos916() {
+    const stored = localStorage.getItem('BELA_VIDEOS');
+    const list = stored ? JSON.parse(stored) : INITIAL_VIDEOS;
+    if (!stored) localStorage.setItem('BELA_VIDEOS', JSON.stringify(INITIAL_VIDEOS));
+    return {data: list, error: null};
+  },
+
+  async addVideo916(video: any) {
+    const newVid = {...video, id: `vid-${Date.now()}`};
+    const stored = localStorage.getItem('BELA_VIDEOS');
+    const list = stored ? JSON.parse(stored) : INITIAL_VIDEOS;
+    const updated = [newVid, ...list];
+    localStorage.setItem('BELA_VIDEOS', JSON.stringify(updated));
+    return {data: [newVid], error: null};
+  },
+
+  async deleteVideo916(id: string) {
+    const stored = localStorage.getItem('BELA_VIDEOS');
+    const list = stored ? JSON.parse(stored) : INITIAL_VIDEOS;
+    const updated = list.filter((v: any) => v.id !== id);
+    localStorage.setItem('BELA_VIDEOS', JSON.stringify(updated));
+    return {error: null};
+  },
+
+  // Direct Messages between Client & Professional
+  async getDirectMessages(senderId: string, receiverId: string) {
+    const key = `BELA_CHAT_MSGS`;
+    const stored = localStorage.getItem(key);
+    const allMsgs = stored ? JSON.parse(stored) : [
+      {
+        id: 'msg-1',
+        sender_id: 'prof-1',
+        sender_name: 'Carla Silva',
+        receiver_id: senderId,
+        content: 'Olá! Sou a Carla, sua cabeleireira no Salão Bela Mulher. Como posso ajudar você hoje?',
+        timestamp: new Date(Date.now() - 3600000).toISOString()
+      }
+    ];
+    return {data: allMsgs, error: null};
+  },
+
+  async sendDirectMessage(msg: any) {
+    const key = `BELA_CHAT_MSGS`;
+    const newMsg = {
+      ...msg,
+      id: `msg-${Date.now()}`,
+      timestamp: new Date().toISOString()
+    };
+    const stored = localStorage.getItem(key);
+    const list = stored ? JSON.parse(stored) : [];
+    const updated = [...list, newMsg];
+    localStorage.setItem(key, JSON.stringify(updated));
+    return {data: [newMsg], error: null};
+  },
+
+  // Connection Check
   async verifyDatabaseSchema() {
     const requiredTables = ['profiles', 'services', 'appointments', 'transactions', 'conversations', 'messages'];
     const results: Record<string, boolean> = {};
-    
     for (const table of requiredTables) {
       const {error} = await supabase.from(table).select('*').limit(1);
       results[table] = !error || error.code !== '42P01';
@@ -288,7 +663,6 @@ export const dataService = {
       if (sessionError) {
         return { success: false, message: `Erro Auth: ${sessionError.message}` };
       }
-      
       const { data, error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
       if (error) {
         if (error.message?.includes('Failed to fetch')) {

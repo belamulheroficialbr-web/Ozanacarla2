@@ -25,7 +25,10 @@ import {
   BarChart3,
   Package,
   Award,
-  AlertTriangle
+  AlertTriangle,
+  Tag,
+  Image,
+  Calculator as CalcIcon
 } from 'lucide-react';
 import {VitrineManager} from './VitrineManager';
 import {CustomizationPanel} from './CustomizationPanel';
@@ -33,6 +36,10 @@ import {ClientManager} from './ClientManager';
 import {CashFlowManager} from './CashFlowManager';
 import {InventoryManager} from './InventoryManager';
 import {Charts3D} from './Charts3D';
+import {CouponManager} from './CouponManager';
+import {OrdersManager} from './OrdersManager';
+import {MediaManager} from './MediaManager';
+import {Calculator} from '../tools/Calculator';
 import {dataService} from '../../lib/data';
 import {AppointmentManager} from '../tools/AppointmentManager';
 import {useAuth} from '../../context/AuthContext';
@@ -48,19 +55,22 @@ const adminModuleGroups = [
     ]
   },
   {
-    category: 'Financeiro & Estoque',
+    category: 'Financeiro & Vendas',
     modules: [
       {id: 'caixa', label: 'Fluxo de Caixa', icon: Briefcase, desc: 'Entradas, saídas e saldos'},
       {id: 'estoque', label: 'Estoque de Produtos', icon: Package, desc: 'Controle de materiais e alertas'},
+      {id: 'pedidos', label: 'Sacola & Pedidos', icon: ShoppingBag, desc: 'Vendas online dos clientes'},
+      {id: 'cupons', label: 'Cupons de Desconto', icon: Tag, desc: 'Promocodes e ofertas'},
+      {id: 'calculadora', label: 'Calculadora de Atendimento', icon: CalcIcon, desc: 'Cálculos rápidos e comissões'},
     ]
   },
   {
-    category: 'Pessoas & Serviços',
+    category: 'Pessoas & Mídias',
     modules: [
-      {id: 'clientes', label: 'Clientes', icon: Users, desc: 'Base de clientes cadastrados'},
+      {id: 'clientes', label: 'Clientes & Fichas', icon: Users, desc: 'Base de clientes e dados médicos'},
       {id: 'equipe', label: 'Profissionais', icon: Award, desc: 'Equipe e especialistas'},
       {id: 'servicos', label: 'Serviços & Tabela', icon: Scissors, desc: 'Preços e procedimentos'},
-      {id: 'vitrine', label: 'Vitrine Virtual', icon: ShoppingBag, desc: 'Exibição na loja online'},
+      {id: 'midias', label: 'Banners & Vídeos 9:16', icon: Image, desc: 'Carrossel e histórias em vídeo'},
     ]
   },
   {
@@ -426,20 +436,20 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
                   <p className="text-[10px] text-gray-400">Produtos e baixas</p>
                 </button>
                 <button
-                  onClick={() => setActiveModule('graficos')}
+                  onClick={() => setActiveModule('pedidos')}
                   className="p-3.5 bg-gray-950 hover:bg-gray-800 border border-gray-800 rounded-2xl text-left transition-colors"
                 >
-                  <BarChart3 size={20} className="text-amber-400 mb-2" />
-                  <p className="text-xs font-bold text-white">Gráficos 3D</p>
-                  <p className="text-[10px] text-gray-400">Análise de resultados</p>
+                  <ShoppingBag size={20} className="text-amber-400 mb-2" />
+                  <p className="text-xs font-bold text-white">Sacola & Pedidos</p>
+                  <p className="text-[10px] text-gray-400">Vendas da loja</p>
                 </button>
                 <button
-                  onClick={() => setActiveModule('agenda')}
+                  onClick={() => setActiveModule('cupons')}
                   className="p-3.5 bg-gray-950 hover:bg-gray-800 border border-gray-800 rounded-2xl text-left transition-colors"
                 >
-                  <Calendar size={20} className="text-amber-400 mb-2" />
-                  <p className="text-xs font-bold text-white">Agenda Geral</p>
-                  <p className="text-[10px] text-gray-400">Atendimentos do salão</p>
+                  <Tag size={20} className="text-amber-400 mb-2" />
+                  <p className="text-xs font-bold text-white">Cupons</p>
+                  <p className="text-[10px] text-gray-400">Promocodes e ofertas</p>
                 </button>
               </div>
             </div>
@@ -488,21 +498,42 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           />
         )}
 
-        {/* MÓDULO 5: AGENDA GERAL DE ATENDIMENTOS */}
+        {/* MÓDULO 5: SACOLA & PEDIDOS */}
+        {activeModule === 'pedidos' && (
+          <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
+            <OrdersManager />
+          </div>
+        )}
+
+        {/* MÓDULO 6: CUPONS DE DESCONTO */}
+        {activeModule === 'cupons' && (
+          <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
+            <CouponManager />
+          </div>
+        )}
+
+        {/* MÓDULO 7: CALCULADORA UNIFICADA */}
+        {activeModule === 'calculadora' && (
+          <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
+            <Calculator />
+          </div>
+        )}
+
+        {/* MÓDULO 8: AGENDA GERAL */}
         {activeModule === 'agenda' && (
           <div className="space-y-4">
             <AppointmentManager />
           </div>
         )}
 
-        {/* MÓDULO 6: GESTÃO DE CLIENTES */}
+        {/* MÓDULO 9: GESTÃO DE CLIENTES & FICHAS MÉDICAS */}
         {activeModule === 'clientes' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
             <ClientManager />
           </div>
         )}
 
-        {/* MÓDULO 7: GESTÃO DE PROFISSIONAIS DA EQUIPE */}
+        {/* MÓDULO 10: GESTÃO DE PROFISSIONAIS DA EQUIPE */}
         {activeModule === 'equipe' && (
           <div className="bg-gray-900/90 border border-gray-800 p-6 rounded-3xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
@@ -536,28 +567,28 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           </div>
         )}
 
-        {/* MÓDULO 8: SERVIÇOS & PREÇOS (VitrineManager) */}
+        {/* MÓDULO 11: SERVIÇOS & PREÇOS */}
         {activeModule === 'servicos' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
             <VitrineManager />
           </div>
         )}
 
-        {/* MÓDULO 9: VITRINE VIRTUAL */}
-        {activeModule === 'vitrine' && (
+        {/* MÓDULO 12: BANNERS & MÍDIAS 9:16 */}
+        {activeModule === 'midias' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
-            <VitrineManager />
+            <MediaManager />
           </div>
         )}
 
-        {/* MÓDULO 10: PERSONALIZAÇÃO VISUAL */}
+        {/* MÓDULO 13: PERSONALIZAÇÃO VISUAL */}
         {activeModule === 'personalizacao' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
             <CustomizationPanel />
           </div>
         )}
 
-        {/* MÓDULO 11: CONFIGURAÇÕES GERAIS */}
+        {/* MÓDULO 14: CONFIGURAÇÕES GERAIS */}
         {activeModule === 'config' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl space-y-4">
             <h4 className="text-sm font-bold text-white">Configurações Gerais do Salão</h4>

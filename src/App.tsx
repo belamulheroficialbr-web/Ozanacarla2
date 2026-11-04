@@ -1,9 +1,4 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
-import {useState, useEffect} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   Menu,
   Home,
@@ -19,15 +14,16 @@ import {
   Calculator as CalcIcon,
   Sparkles,
   Lock,
-  ArrowLeft
+  ArrowLeft,
+  ShoppingBag
 } from 'lucide-react';
 import {Carousel} from './components/Carousel';
 import {VerticalGallery} from './components/VerticalGallery';
 import {Vitrine} from './components/Vitrine';
 import {AdminPanel} from './components/admin/AdminPanel';
-import {ProfessionalPanel} from './components/professional/ProfessionalPanel';
 import {ClientArea} from './components/client/ClientArea';
 import {SalonChat} from './components/tools/SalonChat';
+import {SacolaModal, CartItem} from './components/SacolaModal';
 import {supabase} from './lib/supabase';
 import {dataService} from './lib/data';
 import {useAuth} from './context/AuthContext';
@@ -77,10 +73,44 @@ export default function App() {
   const [activePanel, setActivePanel] = useState<'home' | 'vitrine' | 'cliente' | 'chat' | 'admin' | 'prof'>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
+  const [isSacolaOpen, setIsSacolaOpen] = useState(false);
+  const [cart, setCart] = useState<CartItem[]>([]);
+
   const {user, role, logoutOwner} = useAuth();
 
   const isStaff = user && (role === 'admin' || role === 'professional');
   const isAdmin = user && role === 'admin';
+
+  // Shopping Bag Cart Handlers
+  const handleAddToCart = (item: CartItem) => {
+    setCart(prev => {
+      const existing = prev.find(i => i.id === item.id);
+      if (existing) {
+        return prev.map(i => i.id === item.id ? {...i, quantity: i.quantity + item.quantity} : i);
+      }
+      return [...prev, item];
+    });
+  };
+
+  const handleUpdateCartQuantity = (id: string, delta: number) => {
+    setCart(prev => prev.map(item => {
+      if (item.id === id) {
+        const newQty = item.quantity + delta;
+        return newQty > 0 ? {...item, quantity: newQty} : item;
+      }
+      return item;
+    }));
+  };
+
+  const handleRemoveFromCart = (id: string) => {
+    setCart(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleClearCart = () => {
+    setCart([]);
+  };
+
+  const totalCartCount = cart.reduce((sum, i) => sum + i.quantity, 0);
 
   const handleLogout = () => {
     logoutOwner?.();
@@ -93,10 +123,8 @@ export default function App() {
       setShowLogin(true);
       return;
     }
-    if (isAdmin) {
+    if (isAdmin || role === 'professional') {
       setActivePanel('admin');
-    } else if (role === 'professional') {
-      setActivePanel('prof');
     } else {
       alert('Seu perfil atual é de Cliente. Apenas profissionais e administradores podem acessar a gestão.');
     }
@@ -126,9 +154,23 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Sacola de Compras Trigger */}
+            <button
+              onClick={() => setIsSacolaOpen(true)}
+              className="relative p-2 text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl transition-colors"
+              title="Abrir Sacola de Compras"
+            >
+              <ShoppingBag size={20} />
+              {totalCartCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 text-black font-bold text-[10px] flex items-center justify-center animate-pulse">
+                  {totalCartCount}
+                </span>
+              )}
+            </button>
+
             <PWAInstallButton />
 
-            {/* User Badge or Login Button (Clean Header) */}
+            {/* User Badge or Login Button */}
             {user ? (
               <span className="text-[11px] font-semibold px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
                 {isAdmin ? 'Ozana (Admin)' : (user.email?.split('@')[0] || 'Cliente')}
@@ -145,9 +187,7 @@ export default function App() {
           </div>
         </header>
 
-
-
-        {/* MENU LATERAL VERTICAL (Exclusivo Público & Cliente, com entrada discreta para Equipe) */}
+        {/* MENU LATERAL VERTICAL */}
         {isSidebarOpen && (
           <div className="fixed inset-0 z-50 flex">
             {/* Backdrop */}
@@ -262,7 +302,7 @@ export default function App() {
                   ))}
                 </nav>
 
-                {/* Seção Exclusiva da Equipe (Apenas visível se autenticado como staff) */}
+                {/* Seção Exclusiva da Equipe */}
                 {isStaff && (
                   <div className="pt-2 border-t border-gray-800/80 space-y-2">
                     <span className="text-[10px] uppercase font-bold tracking-wider text-amber-500 px-2 block">
@@ -274,7 +314,7 @@ export default function App() {
                     >
                       <div className="flex items-center gap-2.5">
                         <ShieldCheck size={18} className="text-amber-400" />
-                        <span>{isAdmin ? 'Painel Administrativo (Ozana)' : 'Painel do Especialista'}</span>
+                        <span>Painel do Salão & Gestão</span>
                       </div>
                       <ChevronRight size={14} className="text-amber-400" />
                     </button>
@@ -324,14 +364,16 @@ export default function App() {
                 <p className="mt-2 text-gray-400">Excelência em beleza, estética e cuidado.</p>
               </div>
               <Carousel />
-              <VerticalGallery />
+              <Vitrine onAddToCart={handleAddToCart} onSelectServiceToBook={() => setActivePanel('vitrine')} />
             </div>
           )}
 
-          {/* TELA PÚBLICA 2: VITRINE DE SERVIÇOS */}
-          {activePanel === 'vitrine' && <Vitrine />}
+          {/* TELA PÚBLICA 2: VITRINE DE SERVIÇOS & PRODUTOS */}
+          {activePanel === 'vitrine' && (
+            <Vitrine onAddToCart={handleAddToCart} onSelectServiceToBook={() => setActivePanel('cliente')} />
+          )}
 
-          {/* TELA 3: ÁREA EXCLUSIVA DO CLIENTE (Sem nenhuma ferramenta administrativa) */}
+          {/* TELA 3: ÁREA EXCLUSIVA DO CLIENTE */}
           {activePanel === 'cliente' && (
             <ClientArea
               onNavigateToVitrine={() => setActivePanel('vitrine')}
@@ -339,12 +381,12 @@ export default function App() {
             />
           )}
 
-          {/* TELA 4: CHAT DE ATENDIMENTO DO CLIENTE (Assistente Virtual Funcional) */}
+          {/* TELA 4: CHAT DE ATENDIMENTO DO CLIENTE */}
           {activePanel === 'chat' && <SalonChat />}
 
-          {/* TELA 5: PAINEL ADMINISTRATIVO (Exclusivo da Administradora Ozana) */}
+          {/* TELA 5: PAINEL ADMINISTRATIVO E PROFISSIONAL */}
           {activePanel === 'admin' && (
-            isAdmin ? (
+            isStaff ? (
               <div className="space-y-4">
                 <AdminPanel onExitToPublic={() => setActivePanel('home')} />
               </div>
@@ -353,49 +395,16 @@ export default function App() {
                 <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
                   <Lock size={30} />
                 </div>
-                <h3 className="text-lg font-bold text-white">Acesso Restrito à Administração</h3>
+                <h3 className="text-lg font-bold text-white">Acesso Restrito à Gestão</h3>
                 <p className="text-xs text-gray-400">
-                  Este painel é reservado exclusivamente à proprietária Ozana e administradores autorizados.
+                  Este painel é reservado exclusivamente à equipe do Salão Bela Mulher.
                 </p>
                 <div className="space-y-2 pt-2">
                   <button
                     onClick={() => setShowLogin(true)}
                     className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-xs transition-colors"
                   >
-                    Entrar como Administradora
-                  </button>
-                  <button
-                    onClick={() => setActivePanel('home')}
-                    className="w-full py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-xl text-xs transition-colors"
-                  >
-                    Voltar à Tela Inicial Pública
-                  </button>
-                </div>
-              </div>
-            )
-          )}
-
-          {/* TELA 6: PAINEL PROFISSIONAL E GESTÃO DO SALÃO */}
-          {activePanel === 'prof' && (
-            isStaff ? (
-              <div className="space-y-4">
-                <AdminPanel onExitToPublic={() => setActivePanel('home')} />
-              </div>
-            ) : (
-              <div className="max-w-md mx-auto my-12 bg-gray-900 border border-gray-800 p-8 rounded-3xl text-center space-y-4">
-                <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-                  <Lock size={30} />
-                </div>
-                <h3 className="text-lg font-bold text-white">Acesso Restrito ao Profissional</h3>
-                <p className="text-xs text-gray-400">
-                  Esta área é exclusiva para a equipe de especialistas do salão Bela Mulher.
-                </p>
-                <div className="space-y-2 pt-2">
-                  <button
-                    onClick={() => setShowLogin(true)}
-                    className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-xs transition-colors"
-                  >
-                    Fazer Login de Profissional
+                    Fazer Login de Gestão
                   </button>
                   <button
                     onClick={() => setActivePanel('home')}
@@ -409,6 +418,16 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* MODAL DA SACOLA DE COMPRAS */}
+      <SacolaModal
+        isOpen={isSacolaOpen}
+        onClose={() => setIsSacolaOpen(false)}
+        cart={cart}
+        onUpdateQuantity={handleUpdateCartQuantity}
+        onRemoveItem={handleRemoveFromCart}
+        onClearCart={handleClearCart}
+      />
 
       {/* FOOTER FIXO DO CLIENTE (Apenas 4 opções públicas/cliente) */}
       <footer className="fixed bottom-0 left-0 right-0 z-40 flex justify-around p-3 bg-black/90 backdrop-blur-md border-t border-gray-800">
