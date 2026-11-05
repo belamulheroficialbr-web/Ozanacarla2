@@ -21,6 +21,7 @@ import {Carousel} from './components/Carousel';
 import {VerticalGallery} from './components/VerticalGallery';
 import {Vitrine} from './components/Vitrine';
 import {AdminPanel} from './components/admin/AdminPanel';
+import {ProfessionalPanel} from './components/professional/ProfessionalPanel';
 import {ClientArea} from './components/client/ClientArea';
 import {SalonChat} from './components/tools/SalonChat';
 import {SacolaModal, CartItem} from './components/SacolaModal';
@@ -29,6 +30,8 @@ import {dataService} from './lib/data';
 import {useAuth} from './context/AuthContext';
 import {Login} from './components/auth/Login';
 import {PWAInstallButton} from './components/tools/PWAInstallButton';
+import {BookingModal} from './components/client/BookingModal';
+import {NotificationCenter} from './components/tools/NotificationCenter';
 
 interface NavItem {
   id: string;
@@ -73,13 +76,45 @@ export default function App() {
   const [activePanel, setActivePanel] = useState<'home' | 'vitrine' | 'cliente' | 'chat' | 'admin' | 'prof'>('home');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [showLogin, setShowLogin] = useState(false);
+  const [loginMode, setLoginMode] = useState<'client' | 'staff'>('client');
   const [isSacolaOpen, setIsSacolaOpen] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [isBookingOpen, setIsBookingOpen] = useState(false);
+  const [selectedServiceToBook, setSelectedServiceToBook] = useState<any>(null);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [unreadNotifs, setUnreadNotifs] = useState(0);
 
   const {user, role, logoutOwner} = useAuth();
 
+  useEffect(() => {
+    if (user) {
+      fetchUnreadCount();
+      const channel = supabase
+        .channel(`unread_count_${user.id}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'notifications',
+          filter: `user_id=eq.${user.id}`
+        }, () => {
+          fetchUnreadCount();
+        })
+        .subscribe();
+      return () => { supabase.removeChannel(channel); };
+    }
+  }, [user]);
+
+  const fetchUnreadCount = async () => {
+    if (!user) return;
+    const {data} = await dataService.getNotifications(user.id);
+    if (data) {
+      setUnreadNotifs(data.filter((n: any) => !n.is_read).length);
+    }
+  };
+
   const isStaff = user && (role === 'admin' || role === 'professional');
   const isAdmin = user && role === 'admin';
+  const isProfessional = user && role === 'professional';
 
   // Shopping Bag Cart Handlers
   const handleAddToCart = (item: CartItem) => {
@@ -120,15 +155,32 @@ export default function App() {
 
   const handleOpenStaffPanel = () => {
     if (!user) {
+      setLoginMode('staff');
       setShowLogin(true);
       return;
     }
-    if (isAdmin || role === 'professional') {
+    if (isAdmin) {
       setActivePanel('admin');
+    } else if (isProfessional) {
+      setActivePanel('prof');
     } else {
       alert('Seu perfil atual é de Cliente. Apenas profissionais e administradores podem acessar a gestão.');
     }
     setSidebarOpen(false);
+  };
+
+  const handleOpenLogin = (mode: 'client' | 'staff') => {
+    setLoginMode(mode);
+    setShowLogin(true);
+  };
+
+  const handleSelectServiceToBook = (service: any) => {
+    if (!user) {
+      handleOpenLogin('client');
+      return;
+    }
+    setSelectedServiceToBook(service);
+    setIsBookingOpen(true);
   };
 
   return (
@@ -154,6 +206,29 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Notificações Trigger */}
+            {user && (
+              <button
+                onClick={() => setIsNotifOpen(!isNotifOpen)}
+                className="relative p-2 text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-xl transition-colors"
+                title="Notificações"
+              >
+                <Menu size={20} className="hidden" /> {/* Placeholder for alignment if needed */}
+                <span className="sr-only">Notificações</span>
+                <div className="relative">
+                  <Menu size={20} className="hidden" /> {/* Hack to keep space */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+                  </div>
+                </div>
+                {unreadNotifs > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-black font-bold text-[9px] flex items-center justify-center">
+                    {unreadNotifs > 9 ? '9+' : unreadNotifs}
+                  </span>
+                )}
+              </button>
+            )}
+
             {/* Sacola de Compras Trigger */}
             <button
               onClick={() => setIsSacolaOpen(true)}
@@ -173,11 +248,11 @@ export default function App() {
             {/* User Badge or Login Button */}
             {user ? (
               <span className="text-[11px] font-semibold px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/30">
-                {isAdmin ? 'Ozana (Admin)' : (user.email?.split('@')[0] || 'Cliente')}
+                {isAdmin ? 'Ozana (Admin)' : isProfessional ? 'Profissional' : (user.email?.split('@')[0] || 'Cliente')}
               </span>
             ) : (
               <button
-                onClick={() => setShowLogin(true)}
+                onClick={() => handleOpenLogin('client')}
                 className="p-1.5 px-3 text-amber-400 hover:text-amber-300 flex items-center gap-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold transition-colors"
               >
                 <LogIn size={16} />
@@ -228,10 +303,10 @@ export default function App() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-bold text-white truncate">
-                        {user ? (isAdmin ? 'Ozana (Administradora)' : (user.email || 'Cliente')) : 'Visitante'}
+                        {user ? (isAdmin ? 'Ozana (Administradora)' : isProfessional ? 'Especialista Salão' : (user.email || 'Cliente')) : 'Visitante'}
                       </p>
                       <p className="text-[10px] text-gray-400 truncate">
-                        {user ? (isStaff ? 'Equipe Profissional Conectada' : 'Espaço do Cliente') : 'Bem-vinda ao salão!'}
+                        {user ? (isAdmin ? 'Administração Geral' : isProfessional ? 'Painel do Profissional' : 'Espaço do Cliente') : 'Bem-vinda ao salão!'}
                       </p>
                     </div>
                   </div>
@@ -240,7 +315,7 @@ export default function App() {
                     <button
                       onClick={() => {
                         setSidebarOpen(false);
-                        setShowLogin(true);
+                        handleOpenLogin('client');
                       }}
                       className="mt-3 w-full py-2 px-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                     >
@@ -314,7 +389,7 @@ export default function App() {
                     >
                       <div className="flex items-center gap-2.5">
                         <ShieldCheck size={18} className="text-amber-400" />
-                        <span>Painel do Salão & Gestão</span>
+                        <span>{isAdmin ? 'Painel Administrativo (Ozana)' : 'Painel do Profissional'}</span>
                       </div>
                       <ChevronRight size={14} className="text-amber-400" />
                     </button>
@@ -328,7 +403,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       setSidebarOpen(false);
-                      setShowLogin(true);
+                      handleOpenLogin('staff');
                     }}
                     className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
                   >
@@ -355,7 +430,7 @@ export default function App() {
         )}
 
         {/* CONTEÚDO PRINCIPAL (Isolamento Rígido de Telas) */}
-        <main className="p-4 pb-24 min-h-[calc(100vh-8rem)]">
+        <main className={`pb-24 min-h-[calc(100vh-8rem)] ${(activePanel === 'admin' || activePanel === 'prof') ? 'p-0 sm:p-4' : 'p-4'}`}>
           {/* TELA PÚBLICA 1: INÍCIO (Home) */}
           {activePanel === 'home' && (
             <div className="space-y-6">
@@ -364,47 +439,87 @@ export default function App() {
                 <p className="mt-2 text-gray-400">Excelência em beleza, estética e cuidado.</p>
               </div>
               <Carousel />
-              <Vitrine onAddToCart={handleAddToCart} onSelectServiceToBook={() => setActivePanel('vitrine')} />
+              <Vitrine onAddToCart={handleAddToCart} onSelectServiceToBook={handleSelectServiceToBook} />
             </div>
           )}
 
           {/* TELA PÚBLICA 2: VITRINE DE SERVIÇOS & PRODUTOS */}
           {activePanel === 'vitrine' && (
-            <Vitrine onAddToCart={handleAddToCart} onSelectServiceToBook={() => setActivePanel('cliente')} />
+            <Vitrine 
+              onAddToCart={handleAddToCart} 
+              onSelectServiceToBook={handleSelectServiceToBook} 
+            />
           )}
 
           {/* TELA 3: ÁREA EXCLUSIVA DO CLIENTE */}
           {activePanel === 'cliente' && (
             <ClientArea
               onNavigateToVitrine={() => setActivePanel('vitrine')}
-              onRequestLogin={() => setShowLogin(true)}
+              onRequestLogin={() => handleOpenLogin('client')}
             />
           )}
 
           {/* TELA 4: CHAT DE ATENDIMENTO DO CLIENTE */}
           {activePanel === 'chat' && <SalonChat />}
 
-          {/* TELA 5: PAINEL ADMINISTRATIVO E PROFISSIONAL */}
+          {/* TELA 5: PAINEL ADMINISTRATIVO (Apenas para role === 'admin') */}
           {activePanel === 'admin' && (
-            isStaff ? (
+            isAdmin ? (
               <div className="space-y-4">
                 <AdminPanel onExitToPublic={() => setActivePanel('home')} />
               </div>
+            ) : isProfessional ? (
+              <div className="space-y-4">
+                <ProfessionalPanel onExitToPublic={() => setActivePanel('home')} />
+              </div>
             ) : (
-              <div className="max-w-md mx-auto my-12 bg-gray-900 border border-gray-800 p-8 rounded-3xl text-center space-y-4">
+              <div className="max-w-md mx-auto my-12 bg-gray-900 border border-gray-800 p-8 rounded-3xl text-center space-y-4 shadow-2xl">
                 <div className="w-14 h-14 mx-auto rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400">
                   <Lock size={30} />
                 </div>
                 <h3 className="text-lg font-bold text-white">Acesso Restrito à Gestão</h3>
-                <p className="text-xs text-gray-400">
-                  Este painel é reservado exclusivamente à equipe do Salão Bela Mulher.
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Este painel é reservado exclusivamente à equipe e administração do Salão Bela Mulher.
                 </p>
                 <div className="space-y-2 pt-2">
                   <button
-                    onClick={() => setShowLogin(true)}
-                    className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-xs transition-colors"
+                    onClick={() => handleOpenLogin('staff')}
+                    className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-xs transition-colors shadow-lg shadow-amber-600/20"
                   >
                     Fazer Login de Gestão
+                  </button>
+                  <button
+                    onClick={() => setActivePanel('home')}
+                    className="w-full py-2.5 px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-xl text-xs transition-colors"
+                  >
+                    Voltar à Tela Inicial Pública
+                  </button>
+                </div>
+              </div>
+            )
+          )}
+
+          {/* TELA 6: PAINEL DO PROFISSIONAL (Apenas para role === 'professional' ou 'admin') */}
+          {activePanel === 'prof' && (
+            isStaff ? (
+              <div className="space-y-4">
+                <ProfessionalPanel onExitToPublic={() => setActivePanel('home')} />
+              </div>
+            ) : (
+              <div className="max-w-md mx-auto my-12 bg-gray-900 border border-gray-800 p-8 rounded-3xl text-center space-y-4 shadow-2xl">
+                <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
+                  <Lock size={30} />
+                </div>
+                <h3 className="text-lg font-bold text-white">Acesso Restrito ao Profissional</h3>
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Esta área é exclusiva para a equipe de especialistas do salão Bela Mulher.
+                </p>
+                <div className="space-y-2 pt-2">
+                  <button
+                    onClick={() => handleOpenLogin('staff')}
+                    className="w-full py-2.5 px-4 bg-amber-600 hover:bg-amber-500 text-white font-semibold rounded-xl text-xs transition-colors shadow-lg shadow-amber-600/20"
+                  >
+                    Fazer Login de Profissional
                   </button>
                   <button
                     onClick={() => setActivePanel('home')}
@@ -427,10 +542,12 @@ export default function App() {
         onUpdateQuantity={handleUpdateCartQuantity}
         onRemoveItem={handleRemoveFromCart}
         onClearCart={handleClearCart}
+        onRequestLogin={() => handleOpenLogin('client')}
       />
 
       {/* FOOTER FIXO DO CLIENTE (Apenas 4 opções públicas/cliente) */}
-      <footer className="fixed bottom-0 left-0 right-0 z-40 flex justify-around p-3 bg-black/90 backdrop-blur-md border-t border-gray-800">
+      {!(activePanel === 'admin' || activePanel === 'prof') && (
+        <footer className="fixed bottom-0 left-0 right-0 z-40 flex justify-around p-3 bg-black/90 backdrop-blur-md border-t border-gray-800">
         {bottomClientNav.map(item => {
           const Icon = item.icon;
           const isActive = activePanel === item.id;
@@ -448,8 +565,21 @@ export default function App() {
           );
         })}
       </footer>
+      )}
 
-      {showLogin && <Login onClose={() => setShowLogin(false)} />}
+      {showLogin && <Login onClose={() => setShowLogin(false)} defaultMode={loginMode} />}
+      
+      {isNotifOpen && (
+        <div className="fixed top-16 right-4 z-50 w-80 h-[500px]">
+          <NotificationCenter onClose={() => setIsNotifOpen(false)} />
+        </div>
+      )}
+
+      <BookingModal 
+        isOpen={isBookingOpen} 
+        onClose={() => setIsBookingOpen(false)} 
+        preSelectedService={selectedServiceToBook} 
+      />
     </div>
   );
 }

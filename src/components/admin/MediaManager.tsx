@@ -1,6 +1,7 @@
 import React, {useState, useEffect} from 'react';
-import {Image, Video, Plus, Trash2, Play} from 'lucide-react';
+import {Image, Video, Plus, Trash2, Play, Upload} from 'lucide-react';
 import {dataService} from '../../lib/data';
+import {uploadMedia} from '../../lib/storage';
 
 export function MediaManager() {
   const [activeTab, setActiveTab] = useState<'banners' | 'videos'>('banners');
@@ -13,6 +14,7 @@ export function MediaManager() {
   const [bannerTitle, setBannerTitle] = useState('');
   const [bannerSubtitle, setBannerSubtitle] = useState('');
   const [bannerUrl, setBannerUrl] = useState('/src/assets/images/carousel_salon_1_1793799835801.jpg');
+  const [uploadingBanner, setUploadingBanner] = useState(false);
 
   // New Video form
   const [showAddVideo, setShowAddVideo] = useState(false);
@@ -20,6 +22,7 @@ export function MediaManager() {
   const [videoUrl, setVideoUrl] = useState('');
   const [videoAuthor, setVideoAuthor] = useState('');
   const [videoThumb, setVideoThumb] = useState('/src/assets/images/vertical_salon_style_1_1793799836206.jpg');
+  const [uploadingVideo, setUploadingVideo] = useState(false);
 
   const loadMedia = async () => {
     setLoading(true);
@@ -35,6 +38,32 @@ export function MediaManager() {
   useEffect(() => {
     loadMedia();
   }, []);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'banner' | 'video_file' | 'video_thumb') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      if (target === 'banner') {
+        setUploadingBanner(true);
+        const url = await uploadMedia('media-banners', 'banners/banner', file);
+        setBannerUrl(url);
+      } else if (target === 'video_file') {
+        setUploadingVideo(true);
+        const url = await uploadMedia('media-banners', 'videos/story', file);
+        setVideoUrl(url);
+      } else if (target === 'video_thumb') {
+        setUploadingVideo(true);
+        const url = await uploadMedia('media-banners', 'thumbnails/thumb', file);
+        setVideoThumb(url);
+      }
+    } catch (err: any) {
+      alert(`Falha no upload: ${err.message || 'Verifique se o bucket media-banners foi criado no Supabase Storage.'}`);
+    } finally {
+      setUploadingBanner(false);
+      setUploadingVideo(false);
+    }
+  };
 
   const handleCreateBanner = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,17 +253,34 @@ export function MediaManager() {
               />
             </div>
             <div>
-              <label className="text-xs text-gray-300 block mb-1">URL da Imagem</label>
+              <label className="text-xs text-gray-300 block mb-1">Upload da Imagem (Supabase Storage)</label>
+              <div className="flex gap-2 items-center mb-2">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={e => handleFileUpload(e, 'banner')}
+                  className="hidden"
+                  id="banner-file-input"
+                />
+                <label
+                  htmlFor="banner-file-input"
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-amber-400 text-xs rounded-xl font-bold cursor-pointer flex items-center gap-1.5"
+                >
+                  <Upload size={14} />
+                  <span>{uploadingBanner ? 'Enviando...' : 'Escolher Imagem'}</span>
+                </label>
+              </div>
               <input
                 type="text"
                 value={bannerUrl}
                 onChange={e => setBannerUrl(e.target.value)}
+                placeholder="URL da Imagem"
                 className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
               />
             </div>
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={() => setShowAddBanner(false)} className="w-1/2 py-2 bg-gray-800 text-xs text-gray-300 rounded-xl font-bold">Cancelar</button>
-              <button type="submit" className="w-1/2 py-2 bg-amber-600 text-xs text-white rounded-xl font-bold">Salvar Banner</button>
+              <button type="submit" disabled={uploadingBanner} className="w-1/2 py-2 bg-amber-600 text-xs text-white rounded-xl font-bold">Salvar Banner</button>
             </div>
           </form>
         </div>
@@ -267,18 +313,34 @@ export function MediaManager() {
               />
             </div>
             <div>
-              <label className="text-xs text-gray-300 block mb-1">URL do Vídeo (mp4)</label>
+              <label className="text-xs text-gray-300 block mb-1">Upload de Capa / Vídeo (Supabase Storage)</label>
+              <div className="flex gap-2 items-center mb-2">
+                <input
+                  type="file"
+                  accept="image/*,video/*"
+                  onChange={e => handleFileUpload(e, 'video_file')}
+                  className="hidden"
+                  id="video-file-input"
+                />
+                <label
+                  htmlFor="video-file-input"
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-amber-400 text-xs rounded-xl font-bold cursor-pointer flex items-center gap-1.5"
+                >
+                  <Upload size={14} />
+                  <span>{uploadingVideo ? 'Enviando...' : 'Upload Mídia'}</span>
+                </label>
+              </div>
               <input
                 type="text"
                 value={videoUrl}
                 onChange={e => setVideoUrl(e.target.value)}
-                placeholder="https://..."
+                placeholder="URL do Vídeo (mp4)"
                 className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
               />
             </div>
             <div className="flex gap-2 pt-2">
               <button type="button" onClick={() => setShowAddVideo(false)} className="w-1/2 py-2 bg-gray-800 text-xs text-gray-300 rounded-xl font-bold">Cancelar</button>
-              <button type="submit" className="w-1/2 py-2 bg-amber-600 text-xs text-white rounded-xl font-bold">Salvar Vídeo</button>
+              <button type="submit" disabled={uploadingVideo} className="w-1/2 py-2 bg-amber-600 text-xs text-white rounded-xl font-bold">Salvar Vídeo</button>
             </div>
           </form>
         </div>

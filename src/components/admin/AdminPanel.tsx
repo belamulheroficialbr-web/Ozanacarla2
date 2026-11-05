@@ -28,6 +28,10 @@ import {
   AlertTriangle,
   Tag,
   Image,
+  MessageCircle,
+  Bell,
+  Star,
+  Target,
   Calculator as CalcIcon
 } from 'lucide-react';
 import {VitrineManager} from './VitrineManager';
@@ -39,45 +43,59 @@ import {Charts3D} from './Charts3D';
 import {CouponManager} from './CouponManager';
 import {OrdersManager} from './OrdersManager';
 import {MediaManager} from './MediaManager';
+import {AdminChatManager} from './AdminChatManager';
+import {ProfessionalManager} from './ProfessionalManager';
+import {LoyaltyManager} from './LoyaltyManager';
+import {CRMManager} from './CRMManager';
 import {Calculator} from '../tools/Calculator';
 import {dataService} from '../../lib/data';
 import {AppointmentManager} from '../tools/AppointmentManager';
 import {useAuth} from '../../context/AuthContext';
 import {supabase} from '../../lib/supabase';
+import {NotificationCenter} from '../tools/NotificationCenter';
 
 const adminModuleGroups = [
   {
-    category: 'Visão Geral',
+    category: 'Estratégico',
     modules: [
-      {id: 'dashboard', label: 'Indicadores & KPIs', icon: LayoutDashboard, desc: 'Resumo geral do salão'},
-      {id: 'graficos', label: 'Gráficos 3D', icon: BarChart3, desc: 'Análises tridimensionais'},
-      {id: 'agenda', label: 'Agenda Geral', icon: Calendar, desc: 'Horários e marcações'},
+      {id: 'dashboard', label: 'Visão Geral', icon: LayoutDashboard, desc: 'Indicadores e resumo geral'},
+      {id: 'crm', label: 'CRM Inteligente', icon: Target, desc: 'Gestão de relacionamento e fidelização'},
+      {id: 'graficos', label: 'Relatórios & Gráficos 3D', icon: BarChart3, desc: 'Análises visuais tridimensionais'},
     ]
   },
   {
-    category: 'Financeiro & Vendas',
+    category: 'Operacional',
     modules: [
-      {id: 'caixa', label: 'Fluxo de Caixa', icon: Briefcase, desc: 'Entradas, saídas e saldos'},
-      {id: 'estoque', label: 'Estoque de Produtos', icon: Package, desc: 'Controle de materiais e alertas'},
-      {id: 'pedidos', label: 'Sacola & Pedidos', icon: ShoppingBag, desc: 'Vendas online dos clientes'},
-      {id: 'cupons', label: 'Cupons de Desconto', icon: Tag, desc: 'Promocodes e ofertas'},
-      {id: 'calculadora', label: 'Calculadora de Atendimento', icon: CalcIcon, desc: 'Cálculos rápidos e comissões'},
+      {id: 'agenda', label: 'Agenda & Atendimentos', icon: Calendar, desc: 'Gestão de horários e serviços'},
+      {id: 'clientes', label: 'Clientes', icon: Users, desc: 'Gestão de clientes e fichas médicas'},
+      {id: 'equipe', label: 'Profissionais', icon: Award, desc: 'Equipe de especialistas do salão'},
+      {id: 'servicos', label: 'Serviços', icon: Scissors, desc: 'Catálogo e precificação de serviços'},
     ]
   },
   {
-    category: 'Pessoas & Mídias',
+    category: 'Comercial & Vendas',
     modules: [
-      {id: 'clientes', label: 'Clientes & Fichas', icon: Users, desc: 'Base de clientes e dados médicos'},
-      {id: 'equipe', label: 'Profissionais', icon: Award, desc: 'Equipe e especialistas'},
-      {id: 'servicos', label: 'Serviços & Tabela', icon: Scissors, desc: 'Preços e procedimentos'},
-      {id: 'midias', label: 'Banners & Vídeos 9:16', icon: Image, desc: 'Carrossel e histórias em vídeo'},
+      {id: 'pedidos', label: 'Pedidos', icon: ShoppingBag, desc: 'Vendas realizadas na sacola'},
+      {id: 'cupons', label: 'Cupons', icon: Tag, desc: 'Cupons de desconto e promoções'},
+      {id: 'estoque', label: 'Estoque', icon: Package, desc: 'Produtos e controle de materiais'},
+      {id: 'caixa', label: 'Fluxo de Caixa', icon: Briefcase, desc: 'Movimentações financeiras'},
+      {id: 'fidelidade', label: 'Clube Fidelidade', icon: Star, desc: 'Regras de pontos e recompensas'},
     ]
   },
   {
-    category: 'Ajustes',
+    category: 'Comunicação & Mídia',
     modules: [
-      {id: 'personalizacao', label: 'Personalização', icon: Palette, desc: 'Cores e marca do salão'},
-      {id: 'config', label: 'Configurações', icon: Settings, desc: 'Parâmetros do sistema'},
+      {id: 'midias', label: 'Banners & Mídias', icon: Image, desc: 'Destaques e vídeos verticais'},
+      {id: 'chat', label: 'Chat', icon: MessageCircle, desc: 'Central de mensagens com clientes'},
+      {id: 'notificacoes', label: 'Notificações', icon: Bell, desc: 'Alertas automáticos e avisos'},
+    ]
+  },
+  {
+    category: 'Ferramentas & Ajustes',
+    modules: [
+      {id: 'calculadora', label: 'Calculadora', icon: CalcIcon, desc: 'Cálculos rápidos e comissões'},
+      {id: 'personalizacao', label: 'Personalização', icon: Palette, desc: 'Visual e marca do salão'},
+      {id: 'config', label: 'Configurações', icon: Settings, desc: 'Parâmetros técnicos do sistema'},
     ]
   }
 ];
@@ -105,6 +123,9 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
   // Load all operational data
   const loadData = async () => {
     try {
+      // Check reminders first
+      dataService.checkAndSendReminders();
+
       const [cRes, sRes, aRes, tRes, pRes, mRes, profRes] = await Promise.all([
         dataService.getProfiles('client'),
         dataService.getServices(),
@@ -476,6 +497,11 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           />
         )}
 
+        {/* MÓDULO 3: CRM INTELIGENTE */}
+        {activeModule === 'crm' && (
+          <CRMManager />
+        )}
+
         {/* MÓDULO 3: FLUXO DE CAIXA OPERACIONAL */}
         {activeModule === 'caixa' && (
           <CashFlowManager
@@ -535,35 +561,8 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
 
         {/* MÓDULO 10: GESTÃO DE PROFISSIONAIS DA EQUIPE */}
         {activeModule === 'equipe' && (
-          <div className="bg-gray-900/90 border border-gray-800 p-6 rounded-3xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-800">
-              <div>
-                <h4 className="text-sm font-bold text-white">Equipe de Especialistas</h4>
-                <p className="text-xs text-gray-400">Profissionais cadastrados no Salão Bela Mulher</p>
-              </div>
-              <span className="text-xs text-amber-400 font-bold">{professionals.length} especialistas</span>
-            </div>
-
-            {professionals.length === 0 ? (
-              <p className="text-xs text-gray-400 py-6 text-center">Nenhum profissional cadastrado.</p>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {professionals.map(p => (
-                  <div key={p.id} className="p-4 bg-black/60 border border-gray-800 rounded-2xl flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold text-sm shrink-0">
-                      {p.name?.[0]?.toUpperCase() || 'P'}
-                    </div>
-                    <div>
-                      <h5 className="font-bold text-white text-xs">{p.name || 'Profissional'}</h5>
-                      <p className="text-[11px] text-gray-400">{p.email || 'Atendimento presencial'}</p>
-                      <span className="inline-block mt-1 text-[10px] text-amber-400 font-semibold px-2 py-0.5 rounded-full bg-amber-500/10">
-                        {p.role || 'Especialista'}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
+            <ProfessionalManager />
           </div>
         )}
 
@@ -581,29 +580,96 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           </div>
         )}
 
-        {/* MÓDULO 13: PERSONALIZAÇÃO VISUAL */}
+
+
+        {/* MÓDULO 13: CENTRAL DE CHAT COM CLIENTES */}
+        {activeModule === 'chat' && (
+          <div className="space-y-4">
+            <AdminChatManager />
+          </div>
+        )}
+
+        {/* MÓDULO 14: PERSONALIZAÇÃO VISUAL */}
         {activeModule === 'personalizacao' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
             <CustomizationPanel />
           </div>
         )}
 
-        {/* MÓDULO 14: CONFIGURAÇÕES GERAIS */}
+        {/* MÓDULO 16: CENTRAL DE NOTIFICAÇÕES GESTÃO */}
+        {activeModule === 'notificacoes' && (
+          <div className="h-[600px] max-w-2xl mx-auto">
+            <NotificationCenter isAdmin={true} />
+          </div>
+        )}
+
+        {/* MÓDULO 17: GESTÃO DO PROGRAMA DE FIDELIDADE */}
+        {activeModule === 'fidelidade' && (
+          <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
+            <LoyaltyManager />
+          </div>
+        )}
+
+        {/* MÓDULO 15: CONFIGURAÇÕES GERAIS */}
         {activeModule === 'config' && (
-          <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl space-y-4">
-            <h4 className="text-sm font-bold text-white">Configurações Gerais do Salão</h4>
-            <div className="space-y-3 text-xs text-gray-300">
-              <div className="flex justify-between items-center p-3.5 bg-black rounded-xl border border-gray-800">
-                <span>Notificações por WhatsApp</span>
-                <span className="text-amber-400 font-semibold">Ativo</span>
+          <div className="bg-gray-900/90 border border-gray-800 p-6 rounded-3xl space-y-6">
+            <div className="pb-3 border-b border-gray-800">
+              <h4 className="text-sm font-bold text-white">Parâmetros Técnicos do Sistema</h4>
+              <p className="text-[11px] text-gray-400">Configure o comportamento base do aplicativo e integrações.</p>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 bg-black/60 border border-gray-800 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">Notificações WhatsApp</span>
+                    <div className="w-10 h-5 bg-amber-600 rounded-full relative">
+                      <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-500">Enviar lembretes automáticos de agendamento via API.</p>
+                </div>
+
+                <div className="p-4 bg-black/60 border border-gray-800 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-white">Pagamento Online (PIX)</span>
+                    <div className="w-10 h-5 bg-amber-600 rounded-full relative">
+                      <div className="absolute right-1 top-1 w-3 h-3 bg-white rounded-full"></div>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-gray-500">Habilitar checkout direto na sacola de compras.</p>
+                </div>
               </div>
-              <div className="flex justify-between items-center p-3.5 bg-black rounded-xl border border-gray-800">
-                <span>Tempo Padrão entre Serviços</span>
-                <span className="text-amber-400 font-semibold">15 minutos</span>
+
+              <div className="p-4 bg-black/60 border border-gray-800 rounded-2xl space-y-4">
+                <h5 className="text-xs font-bold text-amber-500">Regras de Atendimento</h5>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between py-2 border-b border-gray-800/50">
+                    <span className="text-xs text-gray-300">Tempo de tolerância para atraso</span>
+                    <select className="bg-gray-900 border border-gray-700 rounded-lg text-[11px] p-1 text-white">
+                      <option>10 minutos</option>
+                      <option>15 minutos</option>
+                      <option>20 minutos</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center justify-between py-2 border-b border-gray-800/50">
+                    <span className="text-xs text-gray-300">Intervalo entre procedimentos</span>
+                    <select className="bg-gray-900 border border-gray-700 rounded-lg text-[11px] p-1 text-white">
+                      <option>0 minutos</option>
+                      <option>15 minutos</option>
+                      <option>30 minutos</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-between items-center p-3.5 bg-black rounded-xl border border-gray-800">
-                <span>Chave PIX Cadastrada</span>
-                <span className="text-amber-400 font-semibold">Configurado</span>
+
+              <div className="flex gap-3">
+                <button className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition-colors shadow-lg shadow-amber-600/20">
+                  Salvar Alterações
+                </button>
+                <button className="px-6 py-3 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold rounded-xl text-xs transition-colors">
+                  Resetar
+                </button>
               </div>
             </div>
           </div>

@@ -18,6 +18,7 @@ interface SacolaModalProps {
   onUpdateQuantity: (id: string, delta: number) => void;
   onRemoveItem: (id: string) => void;
   onClearCart: () => void;
+  onRequestLogin?: () => void;
 }
 
 export function SacolaModal({
@@ -26,7 +27,8 @@ export function SacolaModal({
   cart,
   onUpdateQuantity,
   onRemoveItem,
-  onClearCart
+  onClearCart,
+  onRequestLogin
 }: SacolaModalProps) {
   const {user} = useAuth();
   const [couponCode, setCouponCode] = useState('');
@@ -462,7 +464,13 @@ export function SacolaModal({
                 </div>
 
                 <button
-                  onClick={() => setStep('checkout')}
+                  onClick={() => {
+                    if (!user && onRequestLogin) {
+                      onRequestLogin();
+                    } else {
+                      setStep('checkout');
+                    }
+                  }}
                   className="w-full py-3.5 px-4 bg-amber-600 hover:bg-amber-500 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2 shadow-lg shadow-amber-600/20"
                 >
                   <span>Avançar para Pagamento</span>

@@ -1,8 +1,12 @@
 import React, {useState, useEffect} from 'react';
-import {User, Calendar, Clock, CheckCircle2, AlertCircle, Scissors, ArrowRight, Phone, Heart, ShoppingBag, ShieldAlert, MessageSquare, Plus} from 'lucide-react';
+import {User, Calendar, Clock, CheckCircle2, AlertCircle, Scissors, ArrowRight, Phone, Heart, ShoppingBag, ShieldAlert, MessageSquare, Plus, Upload} from 'lucide-react';
 import {useAuth} from '../../context/AuthContext';
 import {dataService} from '../../lib/data';
+import {supabase} from '../../lib/supabase';
+import {uploadMedia} from '../../lib/storage';
 import {DirectChat} from './DirectChat';
+import {NotificationCenter} from '../tools/NotificationCenter';
+import {LoyaltyWallet} from './LoyaltyWallet';
 
 interface ClientAreaProps {
   onNavigateToVitrine: () => void;
@@ -11,7 +15,7 @@ interface ClientAreaProps {
 
 export function ClientArea({onNavigateToVitrine, onRequestLogin}: ClientAreaProps) {
   const {user, role} = useAuth();
-  const [activeTab, setActiveTab] = useState<'agendamentos' | 'perfil' | 'saude' | 'historico' | 'chat'>('agendamentos');
+  const [activeTab, setActiveTab] = useState<'agendamentos' | 'perfil' | 'saude' | 'historico' | 'chat' | 'notificacoes' | 'fidelidade'>('agendamentos');
   
   // Data states
   const [appointments, setAppointments] = useState<any[]>([]);
@@ -38,6 +42,36 @@ export function ClientArea({onNavigateToVitrine, onRequestLogin}: ClientAreaProp
   useEffect(() => {
     if (user) {
       loadClientData();
+
+      // Configurar Realtime para Agendamentos e Pedidos do Cliente
+      const appointmentsChannel = supabase
+        .channel(`client_appointments_${user.id}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'appointments',
+          filter: `client_id=eq.${user.id}`
+        }, () => {
+          loadClientData();
+        })
+        .subscribe();
+
+      const ordersChannel = supabase
+        .channel(`client_orders_${user.id}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'orders',
+          filter: `client_id=eq.${user.id}`
+        }, () => {
+          loadClientData();
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(appointmentsChannel);
+        supabase.removeChannel(ordersChannel);
+      };
     }
   }, [user]);
 
@@ -274,6 +308,26 @@ export function ClientArea({onNavigateToVitrine, onRequestLogin}: ClientAreaProp
           }`}
         >
           Chat com Profissional
+        </button>
+        <button
+          onClick={() => setActiveTab('notificacoes')}
+          className={`pb-3 px-4 text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+            activeTab === 'notificacoes'
+              ? 'text-amber-400 border-b-2 border-amber-500'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          Notificações
+        </button>
+        <button
+          onClick={() => setActiveTab('fidelidade')}
+          className={`pb-3 px-4 text-xs font-bold transition-all whitespace-nowrap shrink-0 ${
+            activeTab === 'fidelidade'
+              ? 'text-amber-400 border-b-2 border-amber-500'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          Fidelidade & Pontos
         </button>
       </div>
 
@@ -514,6 +568,43 @@ export function ClientArea({onNavigateToVitrine, onRequestLogin}: ClientAreaProp
             </div>
 
             <div>
+              <label className="text-xs text-gray-400 block mb-1">Foto de Perfil (Avatar)</label>
+              <div className="flex items-center gap-3 mb-2">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Avatar" className="w-12 h-12 rounded-full object-cover border border-amber-500/40" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-gray-800 flex items-center justify-center text-gray-400 text-xs font-bold">
+                    {name ? name.substring(0, 2).toUpperCase() : 'BM'}
+                  </div>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  id="client-avatar-file"
+                  className="hidden"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file && user) {
+                      try {
+                        const url = await uploadMedia('avatars', `profiles/${user.id}`, file);
+                        setAvatarUrl(url);
+                      } catch (err: any) {
+                        alert(`Erro no upload da foto: ${err.message || 'Bucket avatars ainda não configurado no Supabase.'}`);
+                      }
+                    }
+                  }}
+                />
+                <label
+                  htmlFor="client-avatar-file"
+                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-amber-400 text-xs rounded-xl font-bold cursor-pointer flex items-center gap-1.5"
+                >
+                  <Upload size={14} />
+                  <span>Escolher Foto</span>
+                </label>
+              </div>
+            </div>
+
+            <div>
               <label className="text-xs text-gray-400 block mb-1">WhatsApp / Telefone</label>
               <input
                 type="tel"
@@ -549,6 +640,18 @@ export function ClientArea({onNavigateToVitrine, onRequestLogin}: ClientAreaProp
       {/* TAB 5: CHAT COM PROFISSIONAL */}
       {activeTab === 'chat' && (
         <DirectChat />
+      )}
+
+      {/* TAB 6: CENTRAL DE NOTIFICAÇÕES */}
+      {activeTab === 'notificacoes' && (
+        <div className="h-[500px]">
+          <NotificationCenter />
+        </div>
+      )}
+
+      {/* TAB 7: CLUBE DE FIDELIDADE */}
+      {activeTab === 'fidelidade' && (
+        <LoyaltyWallet />
       )}
     </div>
   );

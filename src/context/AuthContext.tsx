@@ -9,6 +9,7 @@ const AuthContext = createContext<{
   loading: boolean;
   loginAsOwner?: () => void;
   logoutOwner?: () => void;
+  refetchRole?: () => Promise<string | null>;
 }>({
   session: null,
   user: null,
@@ -21,7 +22,6 @@ export const OWNER_ADMIN_ID = '3b04173d-fb3a-4492-8501-e109b423ef88';
 export function AuthProvider({children}: {children: React.ReactNode}) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(() => {
-    // Check if owner local session exists
     if (typeof window !== 'undefined') {
       const storedOwner = localStorage.getItem('BELA_ADMIN_SESSION');
       if (storedOwner === 'true') {
@@ -44,10 +44,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     }
     return null;
   });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // If owner local session is active, keep admin role
     if (localStorage.getItem('BELA_ADMIN_SESSION') === 'true') {
       setRole('admin');
       setLoading(false);
@@ -67,6 +66,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     const {data: {subscription}} = supabase.auth.onAuthStateChange((_event, session) => {
       if (localStorage.getItem('BELA_ADMIN_SESSION') === 'true') {
         setRole('admin');
+        setLoading(false);
         return;
       }
       setSession(session);
@@ -82,44 +82,47 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchRole(userId: string, email?: string) {
+  async function fetchRole(userId: string, email?: string): Promise<string | null> {
     try {
       if (userId === OWNER_ADMIN_ID) {
         setRole('admin');
-        return;
+        return 'admin';
       }
-      let {data, error} = await supabase.from('profiles').select('role').eq('id', userId).single();
-      if (error || !data) {
-        const normalizedEmail = (email || '').trim().toLowerCase();
-        const isAdminEmail = 
-          normalizedEmail === 'belamulheroficial.br@gmail.com' || 
-          normalizedEmail === 'oficial.belamulher@gmail.com' ||
-          userId === OWNER_ADMIN_ID;
-        const defaultRole = isAdminEmail ? 'admin' : 'client';
-        const {data: newProfile} = await supabase.from('profiles').upsert({
-          id: userId,
-          role: defaultRole,
-          name: email?.split('@')[0] || 'Administrador'
-        }).select('role').single();
-        
-        setRole(newProfile?.role ?? defaultRole);
+
+      const normalizedEmail = (email || '').trim().toLowerCase();
+      const isAdminEmail = 
+        normalizedEmail === 'belamulheroficial.br@gmail.com' || 
+        normalizedEmail === 'oficial.belamulher@gmail.com' ||
+        userId === OWNER_ADMIN_ID;
+
+      // Query true role from Supabase profiles table
+      const {data, error} = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
+      
+      let trueRole = 'client';
+      if (!error && data?.role) {
+        trueRole = data.role;
       } else {
-        const normalizedEmail = (email || '').trim().toLowerCase();
-        const isAdminEmail = 
-          normalizedEmail === 'belamulheroficial.br@gmail.com' || 
-          normalizedEmail === 'oficial.belamulher@gmail.com' ||
-          userId === OWNER_ADMIN_ID;
-        if (isAdminEmail && data?.role !== 'admin') {
-          await supabase.from('profiles').update({ role: 'admin' }).eq('id', userId);
-          setRole('admin');
-        } else {
-          setRole(data?.role ?? 'client');
-        }
+        trueRole = isAdminEmail ? 'admin' : 'client';
+        // Insert profile with true role if missing
+        await supabase.from('profiles').upsert({
+          id: userId,
+          role: trueRole,
+          name: email?.split('@')[0] || 'Usuário'
+        });
       }
+
+      if (isAdminEmail && trueRole !== 'admin') {
+        trueRole = 'admin';
+        await supabase.from('profiles').update({ role: 'admin' }).eq('id', userId);
+      }
+
+      setRole(trueRole);
+      return trueRole;
     } catch (e) {
-      console.error('Role fetch exception:', e);
-      if (userId === OWNER_ADMIN_ID) setRole('admin');
-      else setRole('client');
+      console.error('Erro ao verificar permissão do usuário:', e);
+      const fallbackRole = userId === OWNER_ADMIN_ID ? 'admin' : 'client';
+      setRole(fallbackRole);
+      return fallbackRole;
     } finally {
       setLoading(false);
     }
@@ -137,6 +140,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       created_at: new Date().toISOString(),
     } as unknown as User);
     setRole('admin');
+    setLoading(false);
   }
 
   function logoutOwner() {
@@ -145,10 +149,18 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     setRole(null);
     setSession(null);
     supabase.auth.signOut();
+    setLoading(false);
   }
 
+  const refetchRole = async () => {
+    if (user) {
+      return await fetchRole(user.id, user.email);
+    }
+    return null;
+  };
+
   return (
-    <AuthContext.Provider value={{session, user, role, loading, loginAsOwner, logoutOwner}}>
+    <AuthContext.Provider value={{session, user, role, loading, loginAsOwner, logoutOwner, refetchRole}}>
       {children}
     </AuthContext.Provider>
   );
