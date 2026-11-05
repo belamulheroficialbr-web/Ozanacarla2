@@ -178,6 +178,45 @@ const INITIAL_VIDEOS = [
   }
 ];
 
+export const INITIAL_SHOWCASES = [
+  {
+    id: 'vitrine-principal',
+    name: 'Vitrine Principal',
+    subtitle: 'Os Mais Queridos Bela Mulher',
+    description: 'Nossa seleção exclusiva de produtos profissionais e tratamentos para realçar sua beleza natural.',
+    banner_url: '/src/assets/images/carousel_salon_1_1793799835801.jpg',
+    thumbnail_url: '/src/assets/images/service_showcase_1_1793799836251.jpg',
+    category: 'Geral',
+    product_ids: ['prod-1', 'prod-2', 'prod-3'],
+    is_active: true,
+    is_default: true
+  },
+  {
+    id: 'vitrine-loiras',
+    name: 'Loiras & Mechas',
+    subtitle: 'Nutrição & Brilho Ouro 24k',
+    description: 'Tratamentos profundos e fórmulas avançadas para manter cabelos descoloridos e mechas saudáveis e iluminados.',
+    banner_url: '/src/assets/images/service_showcase_2_1793799836229.jpg',
+    thumbnail_url: '/src/assets/images/vertical_salon_style_1_1793799836206.jpg',
+    category: 'Capilar',
+    product_ids: ['prod-1', 'prod-3'],
+    is_active: true,
+    is_default: false
+  },
+  {
+    id: 'vitrine-unhas',
+    name: 'Unhas & Spa Nail Art',
+    subtitle: 'Durabilidade & Brilho Acetinado',
+    description: 'Esmaltes em gel e cuidados intensivos para unhas elegantes, fortes e de acabamento impecável.',
+    banner_url: '/src/assets/images/service_showcase_1_1793799836251.jpg',
+    thumbnail_url: '/src/assets/images/service_showcase_1_1793799836251.jpg',
+    category: 'Unhas & Esmaltes',
+    product_ids: ['prod-2'],
+    is_active: true,
+    is_default: false
+  }
+];
+
 const INITIAL_ORDERS: any[] = [
   {
     id: 'ord-1001',
@@ -611,6 +650,66 @@ export const dataService = {
     const list = stored ? JSON.parse(stored) : INITIAL_VIDEOS;
     const updated = list.filter((v: any) => v.id !== id);
     localStorage.setItem('BELA_VIDEOS', JSON.stringify(updated));
+    return {error: null};
+  },
+
+  // 5.1 Vitrines Comerciais
+  async getShowcases() {
+    try {
+      const {data, error} = await supabase.from('showcases').select('*').order('created_at', {ascending: true});
+      if (!error && data && data.length > 0) return {data, error: null};
+    } catch {}
+
+    const stored = localStorage.getItem('BELA_SHOWCASES');
+    const list = stored ? JSON.parse(stored) : INITIAL_SHOWCASES;
+    if (!stored) localStorage.setItem('BELA_SHOWCASES', JSON.stringify(INITIAL_SHOWCASES));
+    return {data: list, error: null};
+  },
+
+  async addShowcase(showcase: any) {
+    const newShowcase = {
+      ...showcase,
+      id: showcase.id || `showcase-${Date.now()}`,
+      created_at: new Date().toISOString()
+    };
+    try {
+      const {data, error} = await supabase.from('showcases').insert([newShowcase]).select('*');
+      if (!error && data) return {data, error: null};
+    } catch {}
+
+    const stored = localStorage.getItem('BELA_SHOWCASES');
+    const list = stored ? JSON.parse(stored) : INITIAL_SHOWCASES;
+    const updated = [...list, newShowcase];
+    localStorage.setItem('BELA_SHOWCASES', JSON.stringify(updated));
+    return {data: [newShowcase], error: null};
+  },
+
+  async updateShowcase(id: string, updates: any) {
+    try {
+      const {data, error} = await supabase.from('showcases').update(updates).eq('id', id).select('*');
+      if (!error && data) return {data, error: null};
+    } catch {}
+
+    const stored = localStorage.getItem('BELA_SHOWCASES');
+    const list = stored ? JSON.parse(stored) : INITIAL_SHOWCASES;
+    const updated = list.map((s: any) => s.id === id ? {...s, ...updates} : s);
+    localStorage.setItem('BELA_SHOWCASES', JSON.stringify(updated));
+    return {data: updated, error: null};
+  },
+
+  async deleteShowcase(id: string) {
+    if (id === 'vitrine-principal') {
+      return {error: 'A Vitrine Principal não pode ser removida.'};
+    }
+    try {
+      const {error} = await supabase.from('showcases').delete().eq('id', id);
+      if (!error) return {error: null};
+    } catch {}
+
+    const stored = localStorage.getItem('BELA_SHOWCASES');
+    const list = stored ? JSON.parse(stored) : INITIAL_SHOWCASES;
+    const updated = list.filter((s: any) => s.id !== id);
+    localStorage.setItem('BELA_SHOWCASES', JSON.stringify(updated));
     return {error: null};
   },
 

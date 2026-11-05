@@ -1,6 +1,7 @@
 import {useState, useEffect} from 'react';
 import {
   LayoutDashboard,
+  LayoutGrid,
   Briefcase,
   FileText,
   Calendar,
@@ -70,7 +71,7 @@ const adminModuleGroups = [
       {id: 'agenda', label: 'Agenda & Atendimentos', icon: Calendar, desc: 'Gestão de horários e serviços'},
       {id: 'clientes', label: 'Clientes', icon: Users, desc: 'Gestão de clientes e fichas médicas'},
       {id: 'equipe', label: 'Profissionais', icon: Award, desc: 'Equipe de especialistas do salão'},
-      {id: 'servicos', label: 'Serviços', icon: Scissors, desc: 'Catálogo e precificação de serviços'},
+      {id: 'servicos', label: 'Vitrines & Procedimentos', icon: LayoutGrid, desc: 'Vitrines comerciais, coleções e serviços'},
     ]
   },
   {
@@ -202,6 +203,17 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
   const saldoLiquido = totalReceitas - totalDespesas;
   const lowStockCount = products.filter(p => Number(p.quantity || 0) <= Number(p.min_quantity || 5)).length;
 
+  // Fechamento da gaveta do ADM ao pressionar ESC
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsMobileMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, []);
+
   const currentModule = allModules.find(m => m.id === activeModule) || allModules[0];
   const CurrentIcon = currentModule.icon;
 
@@ -217,46 +229,78 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
   };
 
   return (
-    <div className="flex flex-col md:flex-row min-h-[calc(100vh-8rem)] bg-black text-gray-100 rounded-3xl border border-gray-800/80 overflow-hidden shadow-2xl relative">
+    <div className="flex flex-col lg:flex-row min-h-[calc(100vh-8rem)] bg-black text-gray-100 rounded-3xl border border-gray-800/80 overflow-hidden shadow-2xl relative w-full max-w-full">
       
-      {/* MOBILE TOP BAR */}
-      <div className="md:hidden sticky top-0 z-40 bg-black/80 backdrop-blur-md border-b border-gray-800 p-3 flex items-center justify-between">
-        <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="p-2.5 bg-gray-900 border border-gray-800 rounded-xl text-amber-400 active:scale-95 transition-transform"
-        >
-          <Menu size={20} />
-        </button>
-        <div className="flex flex-col items-center">
-          <span className="text-[10px] text-amber-500 font-black uppercase tracking-widest">Bela Mulher</span>
-          <span className="text-[11px] font-bold text-white">{currentModule.label}</span>
+      {/* BARRA SUPERIOR EXCLUSIVA DO ADM (Celular e Tablet) */}
+      <div className="lg:hidden sticky top-0 z-40 bg-black/95 backdrop-blur-md border-b border-gray-800 px-3 py-2.5 flex items-center justify-between w-full">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsMobileMenuOpen(true)}
+            className="p-2 bg-gray-900 border border-gray-800 rounded-xl text-amber-400 hover:text-amber-300 active:scale-95 transition-all"
+            title="Abrir Menu de Gestão"
+            aria-label="Abrir Menu de Gestão"
+          >
+            <Menu size={19} />
+          </button>
+
+          {/* Seta curta de voltar rápida para o dashboard inicial */}
+          {activeModule !== 'dashboard' && (
+            <button
+              onClick={() => handleSelectModule('dashboard')}
+              className="p-2 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400 active:scale-90 transition-all flex items-center gap-1"
+              title="Voltar para Visão Geral"
+              aria-label="Voltar para Visão Geral"
+            >
+              <ArrowLeft size={16} />
+              <span className="text-[10px] font-bold hidden xs:inline">Início</span>
+            </button>
+          )}
         </div>
-        <div className="w-10"></div>
+
+        <div className="flex flex-col items-center text-center px-1">
+          <span className="text-[9px] text-amber-500 font-black uppercase tracking-widest leading-none">Bela Mulher ADM</span>
+          <span className="text-xs font-bold text-white truncate max-w-[140px] xs:max-w-[180px] leading-tight mt-0.5">{currentModule.label}</span>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {onExitToPublic && (
+            <button
+              onClick={onExitToPublic}
+              className="px-2.5 py-1.5 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-xl text-amber-400 text-[11px] font-bold flex items-center gap-1 active:scale-95 transition-all"
+              title="Voltar ao Salão Público"
+            >
+              <ArrowLeft size={14} />
+              <span className="hidden xs:inline">Salão</span>
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* MOBILE OVERLAY */}
+      {/* MOBILE OVERLAY (Toque para fechar a gaveta do ADM com animação suave) */}
       {isMobileMenuOpen && (
         <div 
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden animate-in fade-in duration-300"
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm lg:hidden transition-opacity duration-200"
           onClick={() => setIsMobileMenuOpen(false)}
+          aria-hidden="true"
         />
       )}
 
-      {/* SIDEBAR (Responsive Drawer) */}
+      {/* SIDEBAR GAVETA (Responsiva para Celular, Tablet e Desktop) */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-gray-950 border-r border-gray-800 p-5 flex flex-col justify-between
-        transform transition-transform duration-300 ease-out md:relative md:translate-x-0
-        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-gray-950 border-r border-gray-800 p-4 sm:p-5 flex flex-col justify-between
+        transform transition-transform duration-300 ease-out lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="space-y-6">
-          <div className="flex items-center justify-between border-b border-gray-800/80 pb-4">
+        <div className="space-y-5">
+          <div className="flex items-center justify-between border-b border-gray-800/80 pb-3">
             <div>
-              <span className="text-[10px] text-amber-500 uppercase tracking-widest font-bold block">Salão Bela Mulher</span>
+              <span className="text-[9px] text-amber-500 uppercase tracking-widest font-bold block">Salão Bela Mulher</span>
               <h3 className="text-sm font-bold text-white tracking-tight">Painel de Gestão</h3>
             </div>
             <button 
               onClick={() => setIsMobileMenuOpen(false)}
-              className="md:hidden p-2 text-gray-500 hover:text-white"
+              className="lg:hidden p-2 text-gray-400 hover:text-white rounded-xl hover:bg-gray-900 transition-colors active:scale-90"
+              aria-label="Fechar menu"
             >
               <ArrowLeft size={18} />
             </button>
