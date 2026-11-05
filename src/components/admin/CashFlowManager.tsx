@@ -10,6 +10,8 @@ interface Transaction {
   date: string;
   payment_method?: string;
   status?: 'pago' | 'pendente';
+  vendor?: string | null;
+  due_date?: string | null;
 }
 
 interface CashFlowManagerProps {
@@ -41,6 +43,8 @@ export function CashFlowManager({
   const [txDate, setTxDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentMethod, setPaymentMethod] = useState('PIX');
   const [status, setStatus] = useState<'pago' | 'pendente'>('pago');
+  const [vendor, setVendor] = useState('');
+  const [dueDate, setDueDate] = useState('');
 
   const categoriesEntrada = ['Serviços', 'Venda de Produtos', 'Pacotes & Combos', 'Outras Entradas'];
   const categoriesSaida = ['Fornecedores & Produtos', 'Aluguel & Contas', 'Comissões da Equipe', 'Manutenção & Equipamentos', 'Marketing', 'Outras Saídas'];
@@ -85,6 +89,8 @@ export function CashFlowManager({
     setTxDate(new Date().toISOString().split('T')[0]);
     setPaymentMethod('PIX');
     setStatus('pago');
+    setVendor('');
+    setDueDate('');
     setShowModal(true);
   };
 
@@ -97,6 +103,8 @@ export function CashFlowManager({
     setTxDate(t.date ? new Date(t.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
     setPaymentMethod(t.payment_method || 'PIX');
     setStatus(t.status || 'pago');
+    setVendor(t.vendor || '');
+    setDueDate(t.due_date ? new Date(t.due_date).toISOString().split('T')[0] : '');
     setShowModal(true);
   };
 
@@ -119,7 +127,9 @@ export function CashFlowManager({
       amount: amountVal,
       date: new Date(txDate).toISOString(),
       payment_method: paymentMethod,
-      status
+      status,
+      vendor: vendor || null,
+      due_date: dueDate ? new Date(dueDate).toISOString() : null
     };
 
     if (selectedTx) {
@@ -247,7 +257,7 @@ export function CashFlowManager({
                     )}
                   </div>
                   <p className="text-[11px] text-gray-500 mt-0.5">
-                    {new Date(t.date).toLocaleDateString('pt-BR')} • {t.category} • {t.payment_method}
+                    {new Date(t.date).toLocaleDateString('pt-BR')} • {t.category} {t.vendor ? `• ${t.vendor}` : ''} {t.due_date ? `• Vence: ${new Date(t.due_date).toLocaleDateString('pt-BR')}` : ''}
                   </p>
                 </div>
               </div>
@@ -280,10 +290,17 @@ export function CashFlowManager({
               <button type="button" onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white"><X size={18} /></button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
               <div>
                 <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Descrição</label>
                 <input required value={desc} onChange={e => setDesc(e.target.value)} type="text" className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Categoria</label>
+                <select value={category} onChange={e => setCategory(e.target.value)} className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none">
+                  {(txType === 'entrada' ? categoriesEntrada : categoriesSaida).map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -292,25 +309,35 @@ export function CashFlowManager({
                   <input required value={amount} onChange={e => setAmount(e.target.value)} type="number" step="0.01" className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none font-bold" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Data</label>
+                  <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Data Lançamento</label>
                   <input required value={txDate} onChange={e => setTxDate(e.target.value)} type="date" className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none" />
                 </div>
               </div>
 
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Fornecedor / Origem (Opcional)</label>
+                <input value={vendor} onChange={e => setVendor(e.target.value)} type="text" placeholder="Ex: L'Oréal, Aluguel Imóvel..." className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none" />
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Pagamento</label>
-                  <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none">
-                    {paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}
-                  </select>
+                  <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Vencimento (Opcional)</label>
+                  <input value={dueDate} onChange={e => setDueDate(e.target.value)} type="date" className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Status</label>
                   <select value={status} onChange={e => setStatus(e.target.value as any)} className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none">
-                    <option value="pago">Pago / Recebido</option>
+                    <option value="pago">{txType === 'entrada' ? 'Recebido' : 'Pago'}</option>
                     <option value="pendente">Pendente</option>
                   </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Método de Pagamento</label>
+                <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none">
+                  {paymentMethods.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
               </div>
             </div>
 

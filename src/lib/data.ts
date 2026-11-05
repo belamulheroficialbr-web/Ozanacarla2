@@ -77,7 +77,8 @@ const INITIAL_MOVEMENTS = [
     type: 'entrada',
     quantity: 10,
     reason: 'Compra Fornecedor L\'Oréal',
-    date: new Date(Date.now() - 172800000).toISOString()
+    date: new Date(Date.now() - 172800000).toISOString(),
+    unit_cost: 15
   },
   {
     id: 'mov-2',
@@ -85,8 +86,29 @@ const INITIAL_MOVEMENTS = [
     product_name: 'Esmalte Gel Ouro Bela Mulher',
     type: 'saida',
     quantity: 2,
-    reason: 'Uso em Atendimento',
-    date: new Date(Date.now() - 86400000).toISOString()
+    reason: 'Uso em Procedimento no Salão',
+    date: new Date(Date.now() - 86400000).toISOString(),
+    unit_cost: 12
+  },
+  {
+    id: 'mov-3',
+    product_id: 'prod-2',
+    product_name: 'Esmalte Gel Ouro Bela Mulher',
+    type: 'perda',
+    quantity: 1,
+    reason: 'Frasco quebrado durante transporte interno',
+    date: new Date(Date.now() - 43200000).toISOString(),
+    unit_cost: 12
+  },
+  {
+    id: 'mov-4',
+    product_id: 'prod-3',
+    product_name: 'Óleo Reparador de Pontas 60ml',
+    type: 'ajuste',
+    quantity: 1,
+    reason: 'Ajuste de inventário físico (+1 unidade encontrada)',
+    date: new Date(Date.now() - 21600000).toISOString(),
+    unit_cost: 25
   }
 ];
 
@@ -366,15 +388,11 @@ export const dataService = {
       const {data, error} = await supabase.from('orders').insert([newOrd]).select('*');
       if (!error && data) {
         if (newOrd.payment_status === 'pago') {
-          await this.addTransaction({
-            description: `Venda Sacola #${newOrd.id} - ${newOrd.client_name}`,
-            category: 'Venda de Produtos',
-            type: 'entrada',
-            amount: newOrd.total_amount,
-            date: new Date().toISOString(),
-            payment_method: newOrd.payment_method
-          });
+          await this.processOrderFinancials(newOrd);
         }
+
+        // Automatic Stock Deduction (prevents duplicates via order.id)
+        await this.processOrderStockDeduction(newOrd);
 
         // Trigger Notification
         await this.addNotification({
@@ -409,15 +427,11 @@ export const dataService = {
     localStorage.setItem('BELA_ORDERS', JSON.stringify(updated));
 
     if (newOrd.payment_status === 'pago') {
-      await this.addTransaction({
-        description: `Venda Sacola #${newOrd.id} - ${newOrd.client_name}`,
-        category: 'Venda de Produtos',
-        type: 'entrada',
-        amount: newOrd.total_amount,
-        date: new Date().toISOString(),
-        payment_method: newOrd.payment_method
-      });
+      await this.processOrderFinancials(newOrd);
     }
+
+    // Automatic Stock Deduction (fallback)
+    await this.processOrderStockDeduction(newOrd);
 
     // Trigger Notification (Local Fallback)
     this.addNotification({
@@ -443,6 +457,13 @@ export const dataService = {
       if (!error && data) {
         // Notify Client about status change
         const order = data[0];
+        
+        // Record transaction if paid
+        if (safeUpdates.payment_status === 'pago') {
+          await this.processOrderFinancials(order);
+          await this.processOrderStockDeduction(order);
+        }
+
         await this.addNotification({
           user_id: order.client_id,
           title: 'Status do Pedido Atualizado',
@@ -805,6 +826,9 @@ export const dataService = {
         // LOYALTY INTEGRATION: Grant points if concluded
         if (status === 'concluded') {
           await this.grantLoyaltyPointsFromAppointment(res.data);
+          
+          // FINANCE INTEGRATION: Record revenue and calculate commission
+          await this.processConclusionFinancials(res.data);
         }
 
         return res;
@@ -964,9 +988,13 @@ export const dataService = {
   },
 
   async recordStockMovement(movement: any) {
-    const newMov = {...movement, id: `mov-${Date.now()}`};
+    const newMov = {
+      ...movement,
+      id: movement.id || `mov-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      date: movement.date || new Date().toISOString()
+    };
     try {
-      const {data, error} = await supabase.from('stock_movements').insert([movement]).select('*');
+      const {data, error} = await supabase.from('stock_movements').insert([newMov]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1337,6 +1365,220 @@ export const dataService = {
     } catch (err) {
       return {error: 'Falha ao disparar campanha'};
     }
+  },
+
+  // 10. Gestão Financeira Avançada
+  async processConclusionFinancials(appointment: any) {
+    try {
+      // 1. Record Revenue Transaction (if not already recorded)
+      const {data: existingTx} = await supabase
+        .from('transactions')
+        .select('id')
+        .eq('related_id', appointment.id)
+        .eq('related_type', 'appointment')
+        .maybeSingle();
+
+      if (!existingTx) {
+        // Get service price
+        const {data: service} = await supabase.from('services').select('price').eq('id', appointment.service_id).single();
+        const amount = Number(service?.price || 0);
+
+        await this.addTransaction({
+          description: `Atendimento: ${appointment.services?.name || 'Serviço'} - Cliente #${appointment.client_id}`,
+          category: 'Serviços',
+          type: 'entrada',
+          amount,
+          date: new Date().toISOString(),
+          payment_method: 'A definir',
+          status: 'pago',
+          related_id: appointment.id,
+          related_type: 'appointment'
+        });
+
+        // 2. Calculate and Record Commission
+        const {data: prof} = await this.getProfile(appointment.professional_id);
+        const rate = Number(prof?.commission_rate || 0);
+        
+        if (rate > 0) {
+          const commissionAmount = (amount * rate) / 100;
+          await supabase.from('commissions').insert([{
+            professional_id: appointment.professional_id,
+            appointment_id: appointment.id,
+            service_amount: amount,
+            commission_rate: rate,
+            commission_amount: commissionAmount,
+            status: 'pending'
+          }]);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao processar financeiro:', err);
+    }
+  },
+
+  async processOrderFinancials(order: any) {
+    try {
+      const {data: existing} = await supabase
+        .from('transactions')
+        .select('id')
+        .eq('related_id', order.id)
+        .eq('related_type', 'order')
+        .maybeSingle();
+
+      if (!existing) {
+        await this.addTransaction({
+          description: `Venda Sacola #${order.id} - ${order.client_name}`,
+          category: 'Venda de Produtos',
+          type: 'entrada',
+          amount: order.total_amount,
+          date: new Date().toISOString(),
+          payment_method: order.payment_method || 'A definir',
+          status: 'pago',
+          related_id: order.id,
+          related_type: 'order'
+        });
+      }
+    } catch (err) {
+      console.error('Erro ao processar financeiro do pedido:', err);
+    }
+  },
+
+  async processOrderStockDeduction(order: any) {
+    try {
+      if (!order || !order.items || !Array.isArray(order.items) || order.items.length === 0) return;
+
+      // Prevent duplicate deduction: check if movement already recorded for this order
+      const {data: existingMovs} = await supabase
+        .from('stock_movements')
+        .select('id')
+        .eq('related_id', order.id);
+
+      if (existingMovs && existingMovs.length > 0) {
+        return; // Already processed in Supabase
+      }
+
+      const stored = localStorage.getItem('BELA_STOCK_MOVEMENTS');
+      if (stored) {
+        const list = JSON.parse(stored);
+        if (list.some((m: any) => m.related_id === order.id)) {
+          return; // Already processed in local storage
+        }
+      }
+
+      // Fetch products
+      const {data: prods} = await this.getProducts();
+      const currentProducts = prods || [];
+
+      for (const item of order.items) {
+        const prod = currentProducts.find((p: any) => p.id === item.id || p.name?.toLowerCase() === item.name?.toLowerCase());
+        const qtyToDeduct = Number(item.quantity) || 1;
+        const currentQty = prod ? Number(prod.quantity) : 0;
+        const newQty = Math.max(0, currentQty - qtyToDeduct);
+
+        // Record stock movement (type: 'saida')
+        await this.recordStockMovement({
+          product_id: prod?.id || item.id,
+          product_name: prod?.name || item.name,
+          type: 'saida',
+          quantity: qtyToDeduct,
+          reason: `Venda Pedido #${order.id} - ${order.client_name || 'Cliente'}`,
+          related_id: order.id,
+          unit_cost: prod?.cost_price || 0,
+          total_cost: (prod?.cost_price || 0) * qtyToDeduct,
+          date: new Date().toISOString()
+        });
+
+        // Update product quantity
+        if (prod?.id) {
+          await this.updateProduct(prod.id, {
+            quantity: newQty,
+            updated_at: new Date().toISOString()
+          });
+
+          // Check if low or depleted stock and notify admins
+          const minQty = Number(prod.min_quantity) || 5;
+          if (newQty <= minQty) {
+            const {data: admins} = await this.getProfiles('admin');
+            if (admins) {
+              for (const admin of admins) {
+                await this.addNotification({
+                  user_id: admin.id,
+                  title: newQty === 0 ? 'Produto Esgotado!' : 'Alerta de Estoque Baixo',
+                  message: newQty === 0
+                    ? `O produto "${prod.name}" esgotou no estoque após o pedido #${order.id}.`
+                    : `O produto "${prod.name}" atingiu o nível crítico de alerta (${newQty} un. restantes).`,
+                  type: 'system',
+                  metadata: { product_id: prod.id, current_quantity: newQty }
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao processar baixa de estoque do pedido:', err);
+    }
+  },
+
+  async getFinancialMetrics() {
+    try {
+      const {data: txs} = await this.getTransactions();
+      if (!txs) return {data: null, error: 'Sem transações'};
+
+      const now = new Date();
+      const todayStr = now.toISOString().split('T')[0];
+      
+      const metrics = {
+        total_revenue: txs.filter((t: any) => t.type === 'entrada').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+        total_expenses: txs.filter((t: any) => t.type === 'saida').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+        pending_receivables: txs.filter((t: any) => t.type === 'entrada' && t.status === 'pendente').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+        pending_payables: txs.filter((t: any) => t.type === 'saida' && t.status === 'pendente').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+        daily_revenue: txs.filter((t: any) => t.type === 'entrada' && t.date.startsWith(todayStr)).reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0)
+      };
+
+      return {data: metrics, error: null};
+    } catch (err) {
+      return {error: 'Erro ao processar métricas'};
+    }
+  },
+
+  async getCommissions(professionalId?: string) {
+    try {
+      let query = supabase.from('commissions').select('*, professional:profiles!professional_id(name), appointment:appointments!appointment_id(start_time, services(name))');
+      if (professionalId) query = query.eq('professional_id', professionalId);
+      const {data, error} = await query.order('created_at', {ascending: false});
+      if (!error && data) return {data, error: null};
+    } catch {}
+    return {data: [], error: null};
+  },
+
+  async payCommission(id: string) {
+    try {
+      const {data: comm} = await supabase.from('commissions').select('*').eq('id', id).single();
+      if (!comm) return {error: 'Não encontrado'};
+
+      // 1. Mark as paid
+      const {error} = await supabase.from('commissions').update({
+        status: 'paid',
+        paid_at: new Date().toISOString()
+      }).eq('id', id);
+
+      if (!error) {
+        // 2. Record as Expense in Transactions
+        await this.addTransaction({
+          description: `Pagamento Comissão - Ref: ${comm.appointment_id}`,
+          category: 'Comissões',
+          type: 'saida',
+          amount: comm.commission_amount,
+          date: new Date().toISOString(),
+          status: 'pago',
+          related_id: id,
+          related_type: 'commission'
+        });
+        return {success: true};
+      }
+    } catch (err) {}
+    return {error: 'Falha ao pagar comissão'};
   },
 
   // Connection Check

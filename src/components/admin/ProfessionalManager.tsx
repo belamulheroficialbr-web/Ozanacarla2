@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Award, Plus, Edit2, Trash2, Mail, Phone, Calendar, Clock, X, Check, Save} from 'lucide-react';
+import {Award, Plus, Edit2, Trash2, Mail, Phone, Calendar, Clock, X, Check, Save, DollarSign} from 'lucide-react';
 import {dataService} from '../../lib/data';
 
 export function ProfessionalManager() {
@@ -14,6 +14,7 @@ export function ProfessionalManager() {
   const [phone, setPhone] = useState('');
   const [specialties, setSpecialties] = useState('');
   const [bio, setBio] = useState('');
+  const [commissionRate, setCommissionRate] = useState(0);
 
   const fetchProfessionals = async () => {
     setLoading(true);
@@ -32,6 +33,7 @@ export function ProfessionalManager() {
     setPhone('');
     setSpecialties('');
     setBio('');
+    setCommissionRate(0);
     setEditingProf(null);
   };
 
@@ -47,6 +49,7 @@ export function ProfessionalManager() {
     setPhone(p.phone || '');
     setSpecialties(p.specialties || '');
     setBio(p.bio || '');
+    setCommissionRate(p.commission_rate || 0);
     setShowModal(true);
   };
 
@@ -58,6 +61,7 @@ export function ProfessionalManager() {
       phone,
       specialties,
       bio,
+      commission_rate: Number(commissionRate),
       role: 'professional'
     };
 
@@ -180,6 +184,21 @@ export function ProfessionalManager() {
               <div>
                 <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Biografia / Perfil Público</label>
                 <textarea rows={2} value={bio} onChange={e => setBio(e.target.value)} className="w-full p-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none" />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-500 ml-1 mb-1 block">Comissão Padrão (%)</label>
+                <div className="relative">
+                  <DollarSign size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-500" />
+                  <input 
+                    type="number" 
+                    value={commissionRate} 
+                    onChange={e => setCommissionRate(Number(e.target.value))} 
+                    className="w-full pl-10 pr-4 py-2.5 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none" 
+                    placeholder="Ex: 30"
+                  />
+                </div>
+                <p className="text-[9px] text-gray-500 mt-1 italic">* Percentual do valor do serviço que será destinado ao profissional.</p>
               </div>
             </div>
 

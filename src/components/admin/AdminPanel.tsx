@@ -38,6 +38,7 @@ import {VitrineManager} from './VitrineManager';
 import {CustomizationPanel} from './CustomizationPanel';
 import {ClientManager} from './ClientManager';
 import {CashFlowManager} from './CashFlowManager';
+import {FinancialDashboard} from './FinancialDashboard';
 import {InventoryManager} from './InventoryManager';
 import {Charts3D} from './Charts3D';
 import {CouponManager} from './CouponManager';
@@ -78,7 +79,7 @@ const adminModuleGroups = [
       {id: 'pedidos', label: 'Pedidos', icon: ShoppingBag, desc: 'Vendas realizadas na sacola'},
       {id: 'cupons', label: 'Cupons', icon: Tag, desc: 'Cupons de desconto e promoções'},
       {id: 'estoque', label: 'Estoque', icon: Package, desc: 'Produtos e controle de materiais'},
-      {id: 'caixa', label: 'Fluxo de Caixa', icon: Briefcase, desc: 'Movimentações financeiras'},
+      {id: 'caixa', label: 'Gestão Financeira', icon: Briefcase, desc: 'DRE, comissões e fluxo de caixa'},
       {id: 'fidelidade', label: 'Clube Fidelidade', icon: Star, desc: 'Regras de pontos e recompensas'},
     ]
   },
@@ -216,98 +217,55 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
   };
 
   return (
-    <div className="flex flex-col md:flex-row min-h-[calc(100vh-8rem)] bg-black text-gray-100 rounded-3xl border border-gray-800/80 overflow-hidden shadow-2xl">
+    <div className="flex flex-col md:flex-row min-h-[calc(100vh-8rem)] bg-black text-gray-100 rounded-3xl border border-gray-800/80 overflow-hidden shadow-2xl relative">
       
-      {/* MOBILE TRIGGER: Menu dropdown vertical no celular */}
-      <div className="md:hidden border-b border-gray-800 bg-gray-950 p-3">
+      {/* MOBILE TOP BAR */}
+      <div className="md:hidden sticky top-0 z-40 bg-black/80 backdrop-blur-md border-b border-gray-800 p-3 flex items-center justify-between">
         <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="w-full flex items-center justify-between p-3 bg-gray-900 border border-gray-800 rounded-2xl text-left shadow-md"
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="p-2.5 bg-gray-900 border border-gray-800 rounded-xl text-amber-400 active:scale-95 transition-transform"
         >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
-              <CurrentIcon size={20} />
-            </div>
-            <div>
-              <span className="text-[10px] text-gray-400 block uppercase tracking-wider font-semibold">Módulo Atual</span>
-              <span className="text-sm font-bold text-white">{currentModule.label}</span>
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
-            <span>{isMobileMenuOpen ? 'Fechar' : 'Módulos'}</span>
-            <ChevronDown size={14} className={`transition-transform duration-200 ${isMobileMenuOpen ? 'rotate-180' : ''}`} />
-          </div>
+          <Menu size={20} />
         </button>
-
-        {isMobileMenuOpen && (
-          <div className="mt-3 p-3 bg-gray-900/95 border border-gray-800 rounded-2xl space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-800">
-              <span className="text-xs font-bold text-amber-500 uppercase tracking-wider">Navegação Vertical da Gestão</span>
-              <span className="text-[11px] text-gray-400">{allModules.length} módulos</span>
-            </div>
-            {adminModuleGroups.map((group, gIdx) => (
-              <div key={gIdx} className="space-y-1.5">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 px-2 block">
-                  {group.category}
-                </span>
-                <div className="space-y-1">
-                  {group.modules.map(mod => {
-                    const Icon = mod.icon;
-                    const isActive = activeModule === mod.id;
-                    return (
-                      <button
-                        key={mod.id}
-                        onClick={() => handleSelectModule(mod.id)}
-                        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-left transition-all duration-150 ${
-                          isActive
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
-                            : 'text-gray-300 hover:text-white hover:bg-gray-800/70 border border-transparent'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <Icon size={16} className={isActive ? 'text-amber-400' : 'text-gray-400'} />
-                          <span className="text-xs">{mod.label}</span>
-                        </div>
-                        {isActive && <ChevronRight size={14} className="text-amber-400" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-
-            <div className="pt-3 border-t border-gray-800 space-y-2">
-              <button
-                onClick={handleLogout}
-                className="w-full flex items-center gap-2 justify-center py-2.5 px-3 bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 text-red-300 text-xs font-bold rounded-xl"
-              >
-                <LogOut size={16} />
-                <span>Sair da Conta</span>
-              </button>
-            </div>
-          </div>
-        )}
+        <div className="flex flex-col items-center">
+          <span className="text-[10px] text-amber-500 font-black uppercase tracking-widest">Bela Mulher</span>
+          <span className="text-[11px] font-bold text-white">{currentModule.label}</span>
+        </div>
+        <div className="w-10"></div>
       </div>
 
-      {/* DESKTOP & TABLET: Menu Lateral VERTICAL (Todas as opções empilhadas verticalmente) */}
-      <aside className="hidden md:flex flex-col w-64 lg:w-72 shrink-0 bg-gray-950 border-r border-gray-800 p-4 space-y-5 justify-between">
-        <div className="space-y-4">
-          <div className="px-2 py-1 flex items-center justify-between border-b border-gray-800/80 pb-3">
+      {/* MOBILE OVERLAY */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm md:hidden animate-in fade-in duration-300"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* SIDEBAR (Responsive Drawer) */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-72 bg-gray-950 border-r border-gray-800 p-5 flex flex-col justify-between
+        transform transition-transform duration-300 ease-out md:relative md:translate-x-0
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <div className="space-y-6">
+          <div className="flex items-center justify-between border-b border-gray-800/80 pb-4">
             <div>
               <span className="text-[10px] text-amber-500 uppercase tracking-widest font-bold block">Salão Bela Mulher</span>
               <h3 className="text-sm font-bold text-white tracking-tight">Painel de Gestão</h3>
             </div>
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Ativo
-            </span>
+            <button 
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="md:hidden p-2 text-gray-500 hover:text-white"
+            >
+              <ArrowLeft size={18} />
+            </button>
           </div>
 
-          {/* Lista Vertical Organizada de Módulos */}
-          <nav className="space-y-4 max-h-[calc(100vh-16rem)] overflow-y-auto pr-1">
+          <nav className="space-y-5 overflow-y-auto max-h-[calc(100vh-14rem)] pr-1 custom-scrollbar">
             {adminModuleGroups.map((group, gIdx) => (
-              <div key={gIdx} className="space-y-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500 px-3 block">
+              <div key={gIdx} className="space-y-1.5">
+                <span className="text-[9px] uppercase font-black tracking-widest text-gray-600 px-3 block">
                   {group.category}
                 </span>
                 <div className="space-y-1">
@@ -318,22 +276,20 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
                       <button
                         key={mod.id}
                         onClick={() => handleSelectModule(mod.id)}
-                        className={`w-full group flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs text-left transition-all duration-200 ${
-                          isActive
-                            ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 font-bold shadow-sm'
-                            : 'text-gray-400 hover:text-gray-100 hover:bg-gray-900/80 border border-transparent font-medium'
-                        }`}
+                        className={`
+                          w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs text-left transition-all duration-200
+                          active:scale-[0.98]
+                          ${isActive
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold shadow-lg shadow-amber-500/5'
+                            : 'text-gray-400 hover:text-gray-100 hover:bg-white/5 border border-transparent font-medium'
+                          }
+                        `}
                       >
                         <div className="flex items-center gap-3">
-                          <Icon size={17} className={isActive ? 'text-amber-400' : 'text-gray-400 group-hover:text-amber-400'} />
+                          <Icon size={18} className={isActive ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'} />
                           <span>{mod.label}</span>
                         </div>
-                        <ChevronRight
-                          size={14}
-                          className={`transition-transform duration-200 ${
-                            isActive ? 'text-amber-400 translate-x-0.5' : 'text-transparent group-hover:text-gray-600'
-                          }`}
-                        />
+                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
                       </button>
                     );
                   })}
@@ -343,49 +299,61 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           </nav>
         </div>
 
-        {/* Rodapé da Barra Lateral com Sair e Voltar ao Início */}
-        <div className="pt-3 border-t border-gray-800 space-y-2">
+        <div className="pt-5 border-t border-gray-800 space-y-3">
           {onExitToPublic && (
             <button
               onClick={onExitToPublic}
-              className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl bg-gray-900 hover:bg-gray-800 text-xs text-amber-400 font-semibold border border-gray-800 transition-colors"
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gray-900 hover:bg-amber-500/10 text-xs text-gray-400 hover:text-amber-400 font-bold border border-gray-800 hover:border-amber-500/30 transition-all active:scale-95"
             >
-              <ArrowLeft size={15} />
-              <span>Voltar ao Início Público</span>
+              <ArrowLeft size={16} />
+              <span>Sair do ADM</span>
             </button>
           )}
 
           <button
             onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl bg-red-950/30 hover:bg-red-950/60 text-xs text-red-400 hover:text-red-300 font-semibold border border-red-900/40 transition-colors"
+            className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-rose-950/20 hover:bg-rose-950/40 text-xs text-rose-500/80 hover:text-rose-400 font-bold border border-rose-900/20 hover:border-rose-900/40 transition-all active:scale-95"
           >
-            <LogOut size={15} />
+            <LogOut size={16} />
             <span>Sair da Conta</span>
           </button>
         </div>
       </aside>
 
       {/* CONTEÚDO PRINCIPAL DO MÓDULO SELECIONADO */}
-      <section className="flex-1 min-w-0 p-4 md:p-6 space-y-6 overflow-y-auto">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-gray-800">
-          <div>
-            <span className="text-[11px] text-amber-500 font-bold tracking-wider uppercase">Painel de Gestão do Salão</span>
-            <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
-              <CurrentIcon size={24} className="text-amber-400" />
-              {currentModule.label}
-            </h2>
-            <p className="text-xs text-gray-400 mt-0.5">{currentModule.desc}</p>
+      <section className="flex-1 min-w-0 p-4 md:p-8 space-y-6 overflow-y-auto relative custom-scrollbar">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-gray-800">
+          <div className="flex items-center gap-4">
+            {/* Seta curta de voltar interna (visível se não for o dashboard) */}
+            <button 
+              onClick={() => handleSelectModule('dashboard')}
+              className={`p-2.5 bg-gray-900 border border-gray-800 rounded-xl text-gray-500 hover:text-amber-400 hover:border-amber-500/30 transition-all active:scale-90 ${activeModule === 'dashboard' ? 'hidden' : 'flex'}`}
+              title="Voltar para Visão Geral"
+            >
+              <ArrowLeft size={18} />
+            </button>
+            
+            <div className="flex flex-col">
+              <span className="hidden md:block text-[11px] text-amber-500 font-bold tracking-wider uppercase">Gestão Bela Mulher</span>
+              <h2 className="text-xl md:text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
+                <CurrentIcon size={24} className="text-amber-400 md:hidden lg:block" />
+                {currentModule.label}
+              </h2>
+              <p className="hidden md:block text-xs text-gray-400 mt-0.5">{currentModule.desc}</p>
+            </div>
           </div>
 
-          {onExitToPublic && (
-            <button
-              onClick={onExitToPublic}
-              className="self-start sm:self-center flex items-center gap-1.5 px-3.5 py-2 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-amber-400 rounded-xl text-xs font-semibold transition-colors"
-            >
-              <ArrowLeft size={15} />
-              <span>Início Público</span>
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {onExitToPublic && (
+              <button
+                onClick={onExitToPublic}
+                className="flex items-center gap-2 px-4 py-2.5 bg-gray-900 hover:bg-gray-800 border border-gray-700 text-amber-400 rounded-xl text-xs font-bold transition-all active:scale-95"
+              >
+                <ArrowLeft size={16} />
+                <span className="hidden sm:inline">Início Público</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* MÓDULO 1: DASHBOARD & KPIS */}
@@ -502,8 +470,13 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           <CRMManager />
         )}
 
-        {/* MÓDULO 3: FLUXO DE CAIXA OPERACIONAL */}
+        {/* MÓDULO 4: GESTÃO FINANCEIRA AVANÇADA */}
         {activeModule === 'caixa' && (
+          <FinancialDashboard />
+        )}
+
+        {/* MÓDULO 5: FLUXO DE CAIXA DETALHADO (Opcional, pode ser integrado no dashboard) */}
+        {activeModule === 'caixa_detalhado' && (
           <CashFlowManager
             transactions={transactions}
             onAddTransaction={handleAddTransaction}
@@ -521,6 +494,7 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
             onUpdateProduct={handleUpdateProduct}
             onDeleteProduct={handleDeleteProduct}
             onRecordMovement={handleRecordMovement}
+            onAddTransaction={handleAddTransaction}
           />
         )}
 

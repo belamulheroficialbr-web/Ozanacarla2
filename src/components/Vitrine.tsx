@@ -165,10 +165,14 @@ export function Vitrine({onAddToCart, onSelectServiceToBook}: VitrineProps) {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredProducts.map(prod => {
             const isAdded = addedItemIds.includes(prod.id);
+            const isOutOfStock = Number(prod.quantity || 0) <= 0;
+            const isLowStock = !isOutOfStock && Number(prod.quantity || 0) <= Number(prod.min_quantity || 3);
             return (
               <div
                 key={prod.id}
-                className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden flex flex-col justify-between group hover:border-amber-500/40 transition-all shadow-xl"
+                className={`bg-gray-900 border rounded-2xl overflow-hidden flex flex-col justify-between group transition-all shadow-xl ${
+                  isOutOfStock ? 'border-rose-900/40 opacity-80' : isLowStock ? 'border-amber-500/40' : 'border-gray-800 hover:border-amber-500/40'
+                }`}
               >
                 <div className="relative aspect-video bg-black overflow-hidden">
                   <img
@@ -177,9 +181,19 @@ export function Vitrine({onAddToCart, onSelectServiceToBook}: VitrineProps) {
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
                   <div className="absolute top-2 right-2">
-                    <span className="px-2 py-1 rounded-lg bg-black/70 backdrop-blur-sm text-amber-400 font-mono text-[10px] font-bold">
-                      Estoque: {prod.quantity}
-                    </span>
+                    {isOutOfStock ? (
+                      <span className="px-2.5 py-1 rounded-lg bg-rose-950/90 border border-rose-600/60 text-rose-300 font-mono text-[10px] font-black uppercase tracking-wider shadow-lg">
+                        Esgotado
+                      </span>
+                    ) : isLowStock ? (
+                      <span className="px-2 py-1 rounded-lg bg-amber-950/90 border border-amber-600/60 text-amber-300 font-mono text-[10px] font-bold shadow-lg">
+                        Últimas {prod.quantity} un.
+                      </span>
+                    ) : (
+                      <span className="px-2 py-1 rounded-lg bg-black/70 backdrop-blur-sm text-gray-300 font-mono text-[10px] font-semibold">
+                        Estoque: {prod.quantity}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -212,14 +226,19 @@ export function Vitrine({onAddToCart, onSelectServiceToBook}: VitrineProps) {
                       </button>
 
                       <button
+                        disabled={isOutOfStock}
                         onClick={() => handleAddProductToCart(prod)}
                         className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all ${
-                          isAdded
-                            ? 'bg-emerald-600 text-white'
+                          isOutOfStock
+                            ? 'bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700/50'
+                            : isAdded
+                            ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
                             : 'bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/20'
                         }`}
                       >
-                        {isAdded ? (
+                        {isOutOfStock ? (
+                          <span>Indisponível</span>
+                        ) : isAdded ? (
                           <>
                             <Check size={14} />
                             <span>Adicionado!</span>
