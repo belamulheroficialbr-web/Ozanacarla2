@@ -592,15 +592,17 @@ export const dataService = {
       if (!error && data) {
         const order = data[0];
         
-        // Use new RPCs for atomic operations & preserve financial consistency
+        // Use exact RPC names and preserve original financial/loyalty routines
         if (safeUpdates.payment_status === 'pago') {
-          await supabase.rpc('confirm_order_payment_and_deduct_stock', { p_order_id: id });
+          const { error: rpcError } = await supabase.rpc('confirm_order_payment_and_deduct_stock', { p_order_id: id });
+          if (rpcError) throw rpcError;
           await this.processOrderFinancials(order);
           await this.grantLoyaltyPointsFromOrder(order);
         }
 
-        if (safeUpdates.payment_status === 'cancelado' || safeUpdates.delivery_status === 'cancelado') {
-          await supabase.rpc('cancel_order_and_revert_stock_atomic', { p_order_id: id, p_cancel_field: safeUpdates.payment_status === 'cancelado' ? 'payment_status' : 'delivery_status' });
+        if (safeUpdates.payment_status === 'cancelado') {
+          const { error: rpcError } = await supabase.rpc('cancel_order_and_revert_stock_atomic', { p_order_id: id, p_cancel_field: 'payment_status' });
+          if (rpcError) throw rpcError;
           await this.revertOrderFinancials(order);
           await this.revertLoyaltyPointsFromOrder(order);
         }
@@ -1823,29 +1825,28 @@ export const dataService = {
   },
 
   async processOrderFinancials(order: any) {
-    try {
-      const {data: existing} = await supabase
-        .from('transactions')
-        .select('id')
-        .eq('related_id', order.id)
-        .eq('related_type', 'order')
-        .maybeSingle();
+    const {data: existing, error: checkErr} = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('related_id', order.id)
+      .eq('related_type', 'order')
+      .maybeSingle();
 
-      if (!existing) {
-        await this.addTransaction({
-          description: `Venda Sacola #${order.id} - ${order.client_name}`,
-          category: 'Venda de Produtos',
-          type: 'entrada',
-          amount: order.total_amount,
-          date: new Date().toISOString(),
-          payment_method: order.payment_method || 'A definir',
-          status: 'pago',
-          related_id: order.id,
-          related_type: 'order'
-        });
-      }
-    } catch (err) {
-      console.error('Erro ao processar financeiro do pedido:', err);
+    if (checkErr) throw checkErr;
+
+    if (!existing) {
+      const { error: addErr } = await this.addTransaction({
+        description: `Venda Sacola #${order.id} - ${order.client_name}`,
+        category: 'Venda de Produtos',
+        type: 'entrada',
+        amount: order.total_amount,
+        date: new Date().toISOString(),
+        payment_method: order.payment_method || 'A definir',
+        status: 'pago',
+        related_id: order.id,
+        related_type: 'order'
+      });
+      if (addErr) throw addErr;
     }
   },
 
@@ -2049,25 +2050,27 @@ export const dataService = {
   },
 
   async revertOrderFinancials(order: any) {
-    const { data: originalTx } = await supabase
+    const { data: originalTx, error: txErr } = await supabase
       .from('transactions')
       .select('amount')
       .eq('related_id', order.id)
       .eq('related_type', 'order')
       .maybeSingle();
 
+    if (txErr) throw txErr;
     if (!originalTx) return;
 
-    const { data: existing } = await supabase
+    const { data: existing, error: checkErr } = await supabase
       .from('transactions')
       .select('id')
       .eq('related_id', order.id)
       .eq('related_type', 'order_reversal')
       .maybeSingle();
     
+    if (checkErr) throw checkErr;
     if (existing) return;
 
-    await this.addTransaction({
+    const { error: addErr } = await this.addTransaction({
       description: `Estorno Pedido #${order.id}`,
       category: 'Estorno de Venda',
       type: 'saida',
@@ -2077,6 +2080,7 @@ export const dataService = {
       related_id: order.id,
       related_type: 'order_reversal'
     });
+    if (addErr) throw addErr;
   },
 
   async revertAppointmentFinancials(appointment: any) {
