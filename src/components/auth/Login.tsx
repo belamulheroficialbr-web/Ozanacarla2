@@ -1,8 +1,8 @@
 import {useState} from 'react';
-import {supabase, setSupabaseConfig, resetSupabaseConfig, DEFAULT_URL, DEFAULT_KEY} from '../../lib/supabase';
+import {supabase} from '../../lib/supabase';
 import {Register} from './Register';
 import {useAuth} from '../../context/AuthContext';
-import {Settings, RotateCcw, UserCheck, ShieldAlert, KeyRound} from 'lucide-react';
+import {UserCheck, ShieldAlert, KeyRound} from 'lucide-react';
 
 interface LoginProps {
   onClose: () => void;
@@ -21,12 +21,8 @@ export function Login({onClose, defaultMode = 'client'}: LoginProps) {
   const [successMsg, setSuccessMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showRegister, setShowRegister] = useState(false);
-  const [showConfig, setShowConfig] = useState(false);
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
-
-  const [dbUrl, setDbUrl] = useState(localStorage.getItem('SUPABASE_URL') || DEFAULT_URL);
-  const [dbKey, setDbKey] = useState(localStorage.getItem('SUPABASE_ANON_KEY') || DEFAULT_KEY);
 
   async function handleLogin(e?: React.FormEvent) {
     if (e) e.preventDefault();
@@ -121,19 +117,6 @@ export function Login({onClose, defaultMode = 'client'}: LoginProps) {
     }
   }
 
-  function handleSaveConfig(e: React.FormEvent) {
-    e.preventDefault();
-    if (dbUrl && dbKey) {
-      setSupabaseConfig(dbUrl, dbKey);
-    } else {
-      setError('Preencha a URL e a Chave do Supabase.');
-    }
-  }
-
-  function handleResetConfig() {
-    resetSupabaseConfig();
-  }
-
   if (showRegister) return <Register onClose={onClose} />;
 
   return (
@@ -148,42 +131,12 @@ export function Login({onClose, defaultMode = 'client'}: LoginProps) {
           </div>
           <button
             type="button"
-            onClick={() => { setShowConfig(!showConfig); setError(''); setSuccessMsg(''); }}
-            className="p-2 text-gray-400 hover:text-amber-500 rounded-xl hover:bg-gray-800 transition-colors"
-            title="Configurações de Conexão"
+            onClick={onClose}
+            className="p-1.5 text-gray-400 hover:text-white rounded-xl hover:bg-gray-800 transition-colors"
           >
-            <Settings size={18} />
+            ✕
           </button>
         </div>
-
-        {/* Seletor de Modo de Acesso (Cliente vs Equipe) */}
-        {!showConfig && !showResetPassword && (
-          <div className="grid grid-cols-2 gap-1 p-1 bg-black border border-gray-800 rounded-2xl">
-            <button
-              type="button"
-              onClick={() => { setTargetMode('client'); setError(''); }}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-                targetMode === 'client'
-                  ? 'bg-amber-600 text-white shadow-md'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Área do Cliente
-            </button>
-
-            <button
-              type="button"
-              onClick={() => { setTargetMode('staff'); setError(''); }}
-              className={`py-2 px-3 rounded-xl text-xs font-bold transition-all ${
-                targetMode === 'staff'
-                  ? 'bg-amber-600 text-white shadow-md'
-                  : 'text-gray-400 hover:text-white'
-              }`}
-            >
-              Equipe / Gestão
-            </button>
-          </div>
-        )}
 
         {/* Exibição de Erros e Mensagens de Sucesso */}
         {error && (
@@ -239,51 +192,6 @@ export function Login({onClose, defaultMode = 'client'}: LoginProps) {
               Voltar ao Login
             </button>
           </form>
-        ) : showConfig ? (
-          /* FORMULÁRIO DE CONFIGURAÇÃO SUPABASE */
-          <form onSubmit={handleSaveConfig} className="space-y-3">
-            <p className="text-xs text-amber-400 font-semibold">Credenciais ativas do Supabase:</p>
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">URL do Projeto</label>
-              <input
-                type="text"
-                placeholder="https://xxx.supabase.co"
-                value={dbUrl}
-                onChange={e => setDbUrl(e.target.value)}
-                className="w-full p-2.5 bg-black rounded-xl text-white text-xs border border-gray-700 font-mono"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-gray-400 block mb-1">Chave Anon / Publishable</label>
-              <textarea
-                rows={3}
-                placeholder="sb_publishable_... ou eyJ..."
-                value={dbKey}
-                onChange={e => setDbKey(e.target.value)}
-                className="w-full p-2.5 bg-black rounded-xl text-white text-xs border border-gray-700 font-mono"
-              />
-            </div>
-            <button
-              type="submit"
-              className="w-full bg-amber-600 hover:bg-amber-500 py-2.5 rounded-xl font-bold text-white text-xs transition-colors"
-            >
-              Salvar e Recarregar
-            </button>
-            <button
-              type="button"
-              onClick={handleResetConfig}
-              className="w-full flex items-center justify-center gap-1.5 py-2 text-gray-400 hover:text-white text-xs border border-gray-800 rounded-xl"
-            >
-              <RotateCcw size={14} /> Restaurar Padrões
-            </button>
-            <button
-              type="button"
-              onClick={() => { setShowConfig(false); setError(''); }}
-              className="w-full text-gray-400 text-xs py-1 hover:text-white"
-            >
-              Voltar ao Login
-            </button>
-          </form>
         ) : (
           /* FORMULÁRIO DE LOGIN PADRÃO */
           <form onSubmit={handleLogin} className="space-y-3.5">
@@ -325,23 +233,8 @@ export function Login({onClose, defaultMode = 'client'}: LoginProps) {
               disabled={isLoading}
               className="w-full bg-amber-600 hover:bg-amber-500 p-3 rounded-xl font-bold text-white text-xs transition-colors disabled:opacity-50 shadow-lg shadow-amber-600/20"
             >
-              {isLoading ? 'Autenticando...' : `Entrar como ${targetMode === 'client' ? 'Cliente' : 'Equipe do Salão'}`}
+              {isLoading ? 'Autenticando...' : 'Entrar na Minha Conta'}
             </button>
-
-            {targetMode === 'staff' && (
-              <div className="pt-2 border-t border-gray-800">
-                <button
-                  type="button"
-                  onClick={() => {
-                    loginAsOwner?.();
-                    onClose();
-                  }}
-                  className="w-full py-2.5 px-3 bg-amber-950/60 hover:bg-amber-900/80 border border-amber-600/50 rounded-xl font-semibold text-amber-300 text-xs transition-colors flex items-center justify-center gap-1.5"
-                >
-                  ⭐ Entrar Direto como Administradora (Ozana)
-                </button>
-              </div>
-            )}
 
             <div className="pt-2 flex flex-col gap-1 text-center">
               <button

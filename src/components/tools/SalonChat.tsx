@@ -1,373 +1,672 @@
-import React, {useState, useEffect, useRef} from 'react';
-import {Bot, Send, Sparkles, User, Mic, Square, Trash2, CheckCircle2, AlertTriangle, Play, Pause, Volume2} from 'lucide-react';
-import {dataService} from '../../lib/data';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  MessageCircle,
+  Send,
+  X,
+  Minus,
+  Sparkles,
+  ShoppingBag,
+  Plus,
+  CheckCircle,
+  Image as ImageIcon,
+  Camera,
+  Mic,
+  Trash2,
+  DollarSign,
+  QrCode,
+  Calendar,
+  Clock,
+  ChevronRight,
+  Scissors,
+  RotateCcw,
+  AlertCircle
+} from 'lucide-react';
+import { dataService, generatePixBrCode } from '../../lib/data';
+import { useAuth } from '../../context/AuthContext';
 
-interface Message {
+export interface ChatMessage {
   id: string;
-  sender: 'bot' | 'user';
-  text: string;
-  audioUrl?: string;
-  options?: string[];
-  timestamp: Date;
+  sender: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  image_url?: string;
+  options?: { label: string; action: () => void }[];
+  productCard?: any;
+  productCards?: any[];
+  serviceCard?: any;
+  latencyMs?: number;
+  isError?: boolean;
 }
 
-export function SalonChat() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+export interface SalonChatProps {
+  onAddToCart?: (item: { id: string; name: string; price: number; quantity: number; image_url?: string }) => void;
+  onOpenSacola?: () => void;
+  cart?: any[];
+}
+
+export function SalonChat({ onAddToCart, onOpenSacola, cart: appCart = [] }: SalonChatProps) {
+  const { user } = useAuth();
+  const [isOpen, setIsOpen] = useState(false);
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputText, setInputText] = useState('');
+  const [selectedImageBase64, setSelectedImageBase64] = useState<string | null>(null);
+  const [typing, setTyping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // In-Memory Catalog State (Synchronized with Supabase)
   const [services, setServices] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
-
-  // Voice recording & Web Speech state
-  const [isRecording, setIsRecording] = useState(false);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [recordingTime, setRecordingTime] = useState(0);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [pendingTextToSend, setPendingTextToSend] = useState('');
-
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const timerRef = useRef<any>(null);
-  const recognitionRef = useRef<any>(null);
+  const [gallery, setGallery] = useState<any[]>([]);
+  const [pixConfig, setPixConfig] = useState<any>(null);
+  const [isCatalogLoaded, setIsCatalogLoaded] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load real DB services & products
+  // Fetch Fresh Database Data from Supabase
+  const loadCatalogData = async () => {
+    try {
+      const [sRes, pRes, vRes, pixRes] = await Promise.all([
+        dataService.getServices(),
+        dataService.getProducts(),
+        dataService.getVideos916(),
+        dataService.getPixConfig()
+      ]);
+      const sData = sRes?.data || [];
+      const pData = pRes?.data || [];
+      const vData = vRes?.data || [];
+      const pixData = pixRes?.data || null;
+
+      setServices(sData);
+      setProducts(pData);
+      setGallery(vData);
+      setPixConfig(pixData);
+      setIsCatalogLoaded(true);
+
+      return { services: sData, products: pData, gallery: vData, pixConfig: pixData };
+    } catch (err) {
+      console.error('Erro ao carregar catálogo:', err);
+      return { services, products, gallery, pixConfig };
+    }
+  };
+
   useEffect(() => {
-    Promise.all([
-      dataService.getServices(),
-      dataService.getProducts()
-    ]).then(([sRes, pRes]) => {
-      if (sRes.data) setServices(sRes.data);
-      if (pRes.data) setProducts(pRes.data);
-    });
-
-    // Initial greeting based on current time
-    const hour = new Date().getHours();
-    let greeting = 'Bom dia';
-    if (hour >= 12 && hour < 18) greeting = 'Boa tarde';
-    else if (hour >= 18 || hour < 5) greeting = 'Boa noite';
-
-    setMessages([
-      {
-        id: '1',
-        sender: 'bot',
-        text: `${greeting}! ✨ Eu sou a assistente virtual do Salão Bela Mulher. Como posso ajudar você hoje com nossos tratamentos, produtos ou agendamentos?`,
-        options: [
-          'Quais são os serviços e preços?',
-          'Quero agendar um horário',
-          'Consultar estoque de produtos',
-          'Quais produtos vocês vendem?'
-        ],
-        timestamp: new Date()
-      }
-    ]);
+    loadCatalogData();
   }, []);
 
+  // Initialize Welcome Greeting (Only on fresh load if no messages exist)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({behavior: 'smooth'});
-  }, [messages]);
+    if (messages.length === 0) {
+      const hour = new Date().getHours();
+      const saudacao = hour >= 18 ? 'Boa noite' : hour >= 12 ? 'Boa tarde' : 'Bom dia';
+      const userName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Cliente VIP';
 
-  // Audio Recording Handlers
-  const handleStartRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({audio: true});
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      const initialMessage: ChatMessage = {
+        id: 'welcome-1',
+        sender: 'assistant',
+        content: `${saudacao}, ${userName}! Sou a Bela, sua atendente VIP do Salão & Estética Bela Mulher. ✨\n\nComo posso cuidar da sua beleza hoje? Posso responder suas dúvidas sobre procedimentos, recomendar cosméticos ou te orientar sobre o Pix!`,
+        timestamp: new Date().toISOString(),
+        options: [
+          { label: 'Como funciona o atendimento?', action: () => processSendMessage('Como funciona o atendimento do salão?') },
+          { label: 'Opções de Hidratação e Preços', action: () => processSendMessage('Quais opções de hidratação vocês oferecem, quanto custam e quanto duram?') },
+          { label: 'Recomendação para Cabelos Ressecados', action: () => processSendMessage('Tenho cabelos ressecados e sem brilho. Qual produto você recomenda e por quê?') },
+          { label: 'Ver Todos os Produtos', action: () => processSendMessage('Ver todos os produtos em estoque') },
+        ]
       };
+      setMessages([initialMessage]);
+    }
+  }, [user]);
 
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(audioChunksRef.current, {type: 'audio/webm'});
-        const url = URL.createObjectURL(blob);
-        setAudioUrl(url);
-      };
+  useEffect(() => {
+    if (isOpen && !isMinimized) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isOpen, isMinimized, typing]);
 
-      mediaRecorder.start();
-      setIsRecording(true);
-      setRecordingTime(0);
-      timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
+  // Client-Side Canvas Image Compression to Max 1024px
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          const maxDim = 1024;
 
-      // Web Speech API Voice Recognition
-      if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.lang = 'pt-BR';
-        recognitionRef.current.continuous = true;
-        recognitionRef.current.interimResults = true;
-
-        recognitionRef.current.onresult = (event: any) => {
-          let transcript = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            transcript += event.results[i][0].transcript;
+          if (width > maxDim || height > maxDim) {
+            if (width > height) {
+              height = Math.round((height * maxDim) / width);
+              width = maxDim;
+            } else {
+              width = Math.round((width * maxDim) / height);
+              height = maxDim;
+            }
           }
-          if (transcript) {
-            setInput(transcript);
-          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx?.drawImage(img, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          resolve(dataUrl);
         };
+        img.onerror = reject;
+        img.src = ev.target?.result as string;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
 
-        recognitionRef.current.start();
-      }
+  // Handle Photo Selection
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const compressedBase64 = await compressImage(file);
+      setSelectedImageBase64(compressedBase64);
     } catch (err) {
-      console.error('Erro ao acessar microfone:', err);
-      alert('Não foi possível acessar o microfone para gravação de voz.');
+      const reader = new FileReader();
+      reader.onload = ev => {
+        setSelectedImageBase64(ev.target?.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
-  const handleStopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
+  // Simulate Speech Recording Input
+  const handleMicClick = () => {
+    setIsRecording(true);
+    setTimeout(() => {
       setIsRecording(false);
-      clearInterval(timerRef.current);
-      if (recognitionRef.current) {
-        try { recognitionRef.current.stop(); } catch {}
-      }
-    }
+      setInputText('Quais opções de hidratação vocês oferecem, quanto custam e quanto duram?');
+    }, 1200);
   };
 
-  const handleDiscardAudio = () => {
-    setAudioUrl(null);
-    setRecordingTime(0);
-  };
+  // Process and Send Message (Measured Real Latency)
+  const processSendMessage = async (textOverride?: string) => {
+    if (isProcessing) return; // Block duplicate clicks
 
-  const handlePrepareSend = (textToSend: string) => {
-    if (!textToSend.trim() && !audioUrl) return;
-    setPendingTextToSend(textToSend);
-    setShowConfirmModal(true);
-  };
+    const textToSend = textOverride !== undefined ? textOverride : inputText;
+    const currentImage = selectedImageBase64;
 
-  const handleConfirmSend = () => {
-    setShowConfirmModal(false);
-    processUserMessage(pendingTextToSend, audioUrl);
-    setInput('');
-    setAudioUrl(null);
-    setPendingTextToSend('');
-  };
+    if (!textToSend.trim() && !currentImage) return;
 
-  const processUserMessage = (userText: string, userAudio: string | null) => {
-    const userMsg: Message = {
-      id: Date.now().toString(),
+    const startTime = performance.now();
+    setIsProcessing(true);
+
+    const userMsg: ChatMessage = {
+      id: `user-${Date.now()}`,
       sender: 'user',
-      text: userText,
-      audioUrl: userAudio || undefined,
-      timestamp: new Date()
+      content: textToSend.trim() || 'Fotografia enviada para análise',
+      timestamp: new Date().toISOString(),
+      image_url: currentImage || undefined
     };
 
     setMessages(prev => [...prev, userMsg]);
+    setInputText('');
+    setSelectedImageBase64(null);
+    setTyping(true);
 
-    // Bot Response Logic using real DB lookup
-    setTimeout(() => {
-      const lower = userText.toLowerCase();
-      let botResponse = '';
-      let options: string[] = [];
+    const lower = textToSend.toLowerCase();
 
-      if (lower.includes('preço') || lower.includes('serviço') || lower.includes('tabela')) {
-        const list = services.map(s => `• ${s.name}: R$ ${Number(s.price).toFixed(2)}`).join('\n');
-        botResponse = `Estes são os nossos serviços e preços atuais cadastrados no sistema:\n\n${list}\n\nVocê gostaria de agendar algum deles?`;
-        options = ['Quero agendar agora', 'Falar com profissional'];
-      } else if (lower.includes('estoque') || lower.includes('produto') || lower.includes('vende')) {
-        const prodList = products.map(p => `• ${p.name}: R$ ${Number(p.sale_price || p.price || 0).toFixed(2)} (${p.quantity} em estoque)`).join('\n');
-        const lowStock = products.filter(p => Number(p.quantity) <= Number(p.min_quantity || 5));
-        
-        let warning = '';
-        if (lowStock.length > 0) {
-          warning = `\n\n⚠️ Alerta de Estoque Baixo para a Administração: (${lowStock.map(p => p.name).join(', ')})`;
-        }
+    // Ensure fresh catalog data is fetched directly from Supabase
+    const catData = await loadCatalogData();
+    const liveProducts = catData.products.length > 0 ? catData.products : products;
+    const liveServices = catData.services.length > 0 ? catData.services : services;
 
-        botResponse = `Nossos produtos disponíveis na vitrine virtual:\n\n${prodList}${warning}`;
-        options = ['Ver vitrine de produtos', 'Quais são as ofertas?'];
-      } else if (lower.includes('agendar') || lower.includes('horário')) {
-        botResponse = 'Para agendar, você pode escolher o serviço desejado na nossa Vitrine Virtual ou clicar em "Ver Vitrine / Agendar" no topo da página. Deseja ver a vitrine agora?';
-        options = ['Sim, ir para a vitrine', 'Falar com atendente'];
+    // Filter available products (Stock > 0)
+    const inStockProducts = liveProducts.filter((p: any) => Number(p.quantity) > 0);
+
+    // Build Recent Chat History (Last 6 Turns) for Multi-Turn Context
+    const historyPayload = messages.slice(-6).map(m => ({
+      sender: m.sender,
+      content: m.content
+    }));
+
+    // AI Query Path
+    const catalogContext = `
+PRODUTOS DISPONÍVEIS NO ESTOQUE REAL:
+${liveProducts.map((p: any) => `• ID ${p.id}: "${p.name}" - R$ ${Number(p.sale_price).toFixed(2)} (${p.quantity} unidades em estoque). Categoria: ${p.category || 'Geral'}. Status Estoque: ${Number(p.quantity) > 0 ? 'DISPONÍVEL' : 'ESGOTADO'}. Descrição: ${p.description || 'Linha profissional'}`).join('\n')}
+
+SERVIÇOS DISPONÍVEIS:
+${liveServices.map((s: any) => `• "${s.name}" - R$ ${Number(s.price).toFixed(2)} (${s.duration_minutes || 60} min)`).join('\n')}
+
+DADOS PIX:
+Chave: ${pixConfig?.pix_key || '12.345.678/0001-90'} (${pixConfig?.key_type || 'CNPJ'}), Favorecido: ${pixConfig?.receiver_name || 'Sra Bela Mulher Salão & Estética'}, Cidade: ${pixConfig?.city || 'SÃO PAULO'}.
+`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          message: textToSend.trim(),
+          image_base64: currentImage,
+          catalogContext,
+          history: historyPayload
+        })
+      });
+
+      clearTimeout(timeoutId);
+
+      const elapsedMs = Math.round(performance.now() - startTime);
+
+      let replyText = '';
+      if (response.ok) {
+        const data = await response.json();
+        replyText = data.reply || 'Como posso te orientar referente à sua solicitação?';
       } else {
-        botResponse = `Entendi seu pedido sobre "${userText}". Nosso salão oferece serviços de cabelos, esmaltação em gel e estética com produtos de alta performance. Como posso ajudar melhor você?`;
-        options = ['Ver serviços e preços', 'Consultar estoque', 'Falar com profissional'];
+        replyText = `Com relação a "${textToSend}", nossos especialistas do Salão Bela Mulher indicam os procedimentos e cosméticos correspondentes do nosso catálogo!`;
       }
 
-      const botMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        sender: 'bot',
-        text: botResponse,
-        options,
-        timestamp: new Date()
+      let replyProductCards: any[] | undefined = undefined;
+      let replyService: any = null;
+      let replyOptions: { label: string; action: () => void }[] | undefined = undefined;
+
+      const isAskingAllProducts = lower.includes('todos os produtos') || lower.includes('ver o catálogo') || lower.includes('lista de produtos');
+      const isAskingRecommendation = lower.includes('ressecad') || lower.includes('recomenda') || lower.includes('sem brilho') || lower.includes('indique');
+      const isAskingComparison = lower.includes('diferença') || lower.includes('diferenca') || lower.includes('entre os dois');
+      const isAskingTotal = lower.includes('dois produtos') || lower.includes('quanto vou pagar') || lower.includes('total');
+      const isAskingHydration = lower.includes('hidratação') || lower.includes('hidratacao');
+
+      if (isAskingAllProducts) {
+        replyProductCards = liveProducts;
+      } else if (isAskingRecommendation || isAskingComparison || isAskingTotal || currentImage) {
+        // Only recommend products with stock > 0
+        replyProductCards = inStockProducts.filter((p: any) => 
+          p.name.toLowerCase().includes('ampola') || 
+          p.name.toLowerCase().includes('óleo') ||
+          p.category === 'Capilar'
+        );
+        if (!replyProductCards || replyProductCards.length === 0) {
+          replyProductCards = inStockProducts.slice(0, 2);
+        }
+      } else if (isAskingHydration) {
+        replyService = liveServices.find((s: any) => s.name.toLowerCase().includes('hidratação')) || liveServices[0];
+      }
+
+      const assistantMsg: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        sender: 'assistant',
+        content: replyText,
+        timestamp: new Date().toISOString(),
+        productCards: replyProductCards,
+        serviceCard: replyService,
+        options: replyOptions,
+        latencyMs: elapsedMs
       };
 
-      setMessages(prev => [...prev, botMsg]);
-    }, 600);
+      setMessages(prev => [...prev, assistantMsg]);
+
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      const elapsedMs = Math.round(performance.now() - startTime);
+
+      const errorMsg: ChatMessage = {
+        id: `assistant-err-${Date.now()}`,
+        sender: 'assistant',
+        content: `Não foi possível completar a consulta referente a "${textToSend}" devido a uma oscilação de conexão. Deseja tentar novamente?`,
+        timestamp: new Date().toISOString(),
+        isError: true,
+        latencyMs: elapsedMs,
+        options: [
+          { label: 'Tentar Novamente', action: () => processSendMessage(textToSend) }
+        ]
+      };
+
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setTyping(false);
+      setIsProcessing(false);
+    }
+  };
+
+  const handleAddToCart = (product: any) => {
+    const stockQty = Number(product.quantity || 0);
+    const existingInCart = (appCart || []).find((c: any) => c.id === product.id);
+    const currentQtyInCart = existingInCart ? existingInCart.quantity : 0;
+
+    if (stockQty <= 0) {
+      alert(`Desculpe, o produto "${product.name}" está indisponível no estoque (0 unidades).`);
+      return;
+    }
+
+    if (currentQtyInCart + 1 > stockQty) {
+      alert(`Ops! Você já possui ${currentQtyInCart} unidade(s) na sua sacola. O estoque total disponível no salão é de ${stockQty} unidade(s).`);
+      return;
+    }
+
+    const price = Number(product.sale_price || product.price || 0);
+
+    // Call main application cart callback
+    if (onAddToCart) {
+      onAddToCart({
+        id: product.id,
+        name: product.name,
+        price,
+        quantity: 1,
+        image_url: product.image_url
+      });
+    }
+
+    const confirmationMsg: ChatMessage = {
+      id: `confirm-${Date.now()}`,
+      sender: 'assistant',
+      content: `Excelente escolha! Adicionei 1x "${product.name}" (R$ ${price.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}) à sua Sacola de Compras! 🛍️\n\nSubtotal atualizado no carrinho e pronto para checkout.`,
+      timestamp: new Date().toISOString(),
+      options: [
+        { label: '🛍️ Abrir Sacola de Compras', action: () => onOpenSacola?.() },
+        { label: '💳 Orientação Pagamento Pix', action: () => processSendMessage('Como funciona a confirmação de pagamento Pix?') }
+      ]
+    };
+    setMessages(prev => [...prev, confirmationMsg]);
   };
 
   return (
-    <div className="w-full max-w-2xl mx-auto bg-gray-950 border border-amber-500/25 rounded-3xl overflow-hidden flex flex-col h-[540px] max-h-[75vh] shadow-2xl">
-      
-      {/* Header do Bot Virtual */}
-      <div className="p-3.5 sm:p-4 bg-gradient-to-r from-gray-950 via-gray-900 to-gray-950 border-b border-gray-800 flex items-center justify-between">
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
-            <Bot size={20} />
+    <>
+      {/* 1. Floating Button (Fixed at Bottom Right) */}
+      {!isOpen && (
+        <button
+          onClick={() => { setIsOpen(true); setIsMinimized(false); }}
+          className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-40 p-3.5 sm:p-4 rounded-3xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-700 text-black shadow-2xl shadow-amber-500/40 border border-amber-300/50 hover:scale-105 active:scale-95 transition-all cursor-pointer flex items-center gap-2 group"
+          title="Atendente VIP Bela Mulher"
+          aria-label="Abrir Chat Atendente VIP"
+        >
+          <div className="relative">
+            <MessageCircle size={24} className="stroke-[2.5]" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-emerald-400 border-2 border-black animate-pulse" />
           </div>
-          <div>
-            <span className="text-[9px] text-amber-500 font-bold uppercase tracking-widest block leading-none">Inteligência Bela Mulher</span>
-            <h4 className="text-xs sm:text-sm font-bold text-white tracking-tight mt-0.5">Assistente Virtual do Salão</h4>
+          <span className="text-xs font-black tracking-tight hidden sm:inline pr-1">
+            Atendente VIP
+          </span>
+        </button>
+      )}
+
+      {/* 2. Anchored Floating Chat Window */}
+      {isOpen && (
+        <div className={`fixed z-50 transition-all duration-300 shadow-2xl ${
+          isMinimized
+            ? 'bottom-20 right-4 sm:bottom-24 sm:right-6 w-72 h-14 bg-gray-950 border border-amber-500/40 rounded-2xl overflow-hidden'
+            : 'bottom-20 right-2 sm:right-6 w-[calc(100vw-1rem)] sm:w-96 max-w-md h-[580px] max-h-[82vh] bg-black border border-amber-500/40 rounded-3xl overflow-hidden flex flex-col justify-between'
+        }`}>
+          {/* Top Header Bar */}
+          <div className="p-3.5 bg-gradient-to-r from-gray-950 via-amber-950/40 to-gray-950 border-b border-amber-500/30 flex items-center justify-between gap-2 shrink-0">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-700 text-black font-black text-xs flex items-center justify-center shrink-0 border border-amber-300/50 shadow">
+                BM
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-xs font-black text-white truncate flex items-center gap-1.5">
+                  <span>Bela · Atendente VIP</span>
+                  <Sparkles size={12} className="text-amber-400 shrink-0" />
+                </h4>
+                {/* CLEAN STATUS INDICATOR (STRICTLY ONLINE) */}
+                <div className="flex items-center gap-1.5 text-[10px] font-extrabold text-emerald-400 mt-0.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>ONLINE</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Header Controls */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => setIsMinimized(!isMinimized)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-gray-800 transition-colors cursor-pointer"
+                title={isMinimized ? 'Expandir' : 'Minimizar'}
+              >
+                <Minus size={16} />
+              </button>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="p-1.5 rounded-xl text-gray-400 hover:text-white hover:bg-gray-800 transition-colors cursor-pointer"
+                title="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
           </div>
-        </div>
 
-        <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1 shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-          Online
-        </span>
-      </div>
+          {/* Chat Body (Only when not minimized) */}
+          {!isMinimized && (
+            <>
+              {/* Message Feed */}
+              <div className="p-3.5 space-y-3.5 overflow-y-auto custom-scrollbar flex-1 text-left bg-gradient-to-b from-black via-gray-950 to-black">
+                {messages.map(msg => {
+                  const isAssistant = msg.sender === 'assistant';
+                  return (
+                    <div
+                      key={msg.id}
+                      className={`flex flex-col ${isAssistant ? 'items-start' : 'items-end'} space-y-1.5 animate-in fade-in duration-200`}
+                    >
+                      {/* User Sent Image Display */}
+                      {msg.image_url && (
+                        <div className="rounded-2xl overflow-hidden border border-amber-500/40 shadow-lg max-w-[80%]">
+                          <img
+                            src={msg.image_url}
+                            alt="Fotografia anexada"
+                            className="w-full max-h-48 object-cover"
+                          />
+                        </div>
+                      )}
 
-      {/* Lista de Mensagens */}
-      <div className="flex-1 p-3 sm:p-4 overflow-y-auto space-y-3.5 custom-scrollbar">
-        {messages.map(msg => (
-          <div
-            key={msg.id}
-            className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}
-          >
-            <div
-              className={`max-w-[90%] sm:max-w-[80%] p-3 sm:p-3.5 rounded-2xl text-xs space-y-2 break-words ${
-                msg.sender === 'user'
-                  ? 'bg-amber-600 text-white rounded-br-none shadow-md'
-                  : 'bg-gray-900 text-gray-200 rounded-bl-none border border-gray-800'
-              }`}
-            >
-              <div className="flex items-center gap-1.5 text-[10px] opacity-70 mb-1">
-                {msg.sender === 'bot' ? (
-                  <>
-                    <Sparkles size={12} className="text-amber-400" />
-                    <span className="font-bold text-amber-400">Assistente Virtual</span>
-                  </>
-                ) : (
-                  <>
-                    <User size={12} />
-                    <span>Você</span>
-                  </>
+                      {/* Message Content Bubble */}
+                      <div className={`max-w-[88%] p-3 rounded-2xl text-xs leading-relaxed whitespace-pre-wrap ${
+                        msg.isError
+                          ? 'bg-red-950/80 border border-red-500/50 text-red-200 rounded-tl-xs shadow-md'
+                          : isAssistant
+                          ? 'bg-gray-900 border border-amber-500/25 text-gray-100 rounded-tl-xs shadow-md'
+                          : 'bg-gradient-to-r from-amber-500 to-amber-600 text-black font-semibold rounded-tr-xs shadow-md'
+                      }`}>
+                        {msg.content}
+
+                        {/* Latency Meter Footer */}
+                        {msg.latencyMs !== undefined && (
+                          <div className="text-[8.5px] opacity-60 font-mono mt-1 text-right">
+                            {msg.latencyMs}ms
+                          </div>
+                        )}
+                      </div>
+
+                      {/* SERVICE CARD DISPLAY */}
+                      {isAssistant && msg.serviceCard && (
+                        <div className="p-3 bg-gray-950 border border-amber-500/40 rounded-2xl max-w-[90%] space-y-2 shadow-xl text-left">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                              <Scissors size={20} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <h5 className="text-xs font-bold text-white truncate">{msg.serviceCard.name}</h5>
+                              <div className="flex items-center gap-2 pt-0.5">
+                                <strong className="text-xs text-amber-400 font-mono font-black">
+                                  R$ {Number(msg.serviceCard.price).toFixed(2)}
+                                </strong>
+                                <span className="text-[9.5px] text-gray-400">
+                                  {msg.serviceCard.duration_minutes || 60} minutos
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* MULTIPLE RICH VISUAL PRODUCT CARDS LIST */}
+                      {isAssistant && msg.productCards && msg.productCards.length > 0 && (
+                        <div className="w-full space-y-2.5 my-1 max-w-[95%]">
+                          <div className="text-[10.5px] font-extrabold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                            <ShoppingBag size={13} />
+                            <span>Produtos ({msg.productCards.length})</span>
+                          </div>
+                          
+                          <div className="space-y-2.5">
+                            {msg.productCards.map((prod, pIdx) => (
+                              <div
+                                key={prod.id || pIdx}
+                                className="p-3 bg-gray-950 border border-amber-500/35 rounded-2xl space-y-2 shadow-xl hover:border-amber-400/60 transition-all text-left"
+                              >
+                                <div className="flex gap-3 items-start">
+                                  {prod.image_url ? (
+                                    <img
+                                      src={prod.image_url}
+                                      alt={prod.name}
+                                      className="w-16 h-16 object-cover rounded-xl border border-amber-500/30 shrink-0 shadow-sm"
+                                    />
+                                  ) : (
+                                    <div className="w-16 h-16 rounded-xl bg-gray-900 border border-gray-800 flex items-center justify-center text-amber-400 shrink-0">
+                                      <ShoppingBag size={20} />
+                                    </div>
+                                  )}
+
+                                  <div className="min-w-0 flex-1 space-y-0.5">
+                                    <h5 className="text-xs font-bold text-white leading-snug">{prod.name}</h5>
+                                    <div className="flex items-center gap-2 flex-wrap pt-0.5">
+                                      <strong className="text-xs text-amber-400 font-mono font-black">
+                                        R$ {Number(prod.sale_price).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                      </strong>
+                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                        Number(prod.quantity) > 0 ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/15 text-red-400 border border-red-500/30'
+                                      }`}>
+                                        {Number(prod.quantity) > 0 ? `${prod.quantity} em estoque` : 'Esgotado'}
+                                      </span>
+                                    </div>
+                                    {prod.description && (
+                                      <p className="text-[10px] text-gray-400 line-clamp-2 leading-relaxed pt-0.5">
+                                        {prod.description}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <button
+                                  onClick={() => handleAddToCart(prod)}
+                                  disabled={Number(prod.quantity) <= 0}
+                                  className="w-full py-2 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-600 hover:from-amber-300 hover:to-amber-500 text-black font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer disabled:opacity-40"
+                                >
+                                  <ShoppingBag size={13} />
+                                  <span>Adicionar à Sacola</span>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Interactive Option Chips */}
+                      {isAssistant && msg.options && (
+                        <div className="flex flex-wrap gap-1.5 pt-1 max-w-[95%]">
+                          {msg.options.map((opt, idx) => (
+                            <button
+                              key={idx}
+                              onClick={opt.action}
+                              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/35 text-amber-300 hover:text-amber-200 text-[10.5px] font-bold transition-all active:scale-95 cursor-pointer text-left flex items-center gap-1"
+                            >
+                              <span>{opt.label}</span>
+                              <ChevronRight size={12} />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {typing && (
+                  <div className="flex items-center gap-2 p-2.5 rounded-xl bg-gray-900 border border-gray-800 text-amber-400 text-xs font-bold animate-pulse w-fit">
+                    <Sparkles size={14} />
+                    <span>Bela está analisando...</span>
+                  </div>
                 )}
+
+                <div ref={messagesEndRef} />
               </div>
 
-              <p className="whitespace-pre-line leading-relaxed">{msg.text}</p>
-
-              {msg.audioUrl && (
-                <div className="pt-1 w-full max-w-full">
-                  <audio src={msg.audioUrl} controls className="w-full max-w-[200px] h-8 rounded-lg" />
+              {/* Image Preview Badge */}
+              {selectedImageBase64 && (
+                <div className="px-3 py-2 bg-gray-900 border-t border-amber-500/30 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <img
+                      src={selectedImageBase64}
+                      alt="Prévia"
+                      className="w-8 h-8 object-cover rounded-lg border border-amber-400"
+                    />
+                    <span className="text-[10.5px] font-bold text-amber-300 truncate">
+                      Fotografia pronta para análise
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setSelectedImageBase64(null)}
+                    className="p-1 text-gray-400 hover:text-red-400 rounded-lg"
+                    title="Remover fotografia"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               )}
-            </div>
 
-            {/* Sugestões Rápidas de Opções */}
-            {msg.options && msg.options.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2 max-w-[90%] sm:max-w-[80%]">
-                {msg.options.map((opt, i) => (
-                  <button
-                    key={i}
-                    onClick={() => handlePrepareSend(opt)}
-                    className="px-2.5 py-1.5 bg-gray-900 hover:bg-amber-500/20 border border-gray-800 hover:border-amber-500/40 text-amber-300 rounded-xl text-[10px] sm:text-[11px] font-medium transition-all text-left active:scale-95"
-                  >
-                    {opt}
-                  </button>
-                ))}
+              {/* Chat Input Bar */}
+              <div className="p-2 sm:p-2.5 bg-gray-950 border-t border-amber-500/20 flex items-center gap-1.5 shrink-0">
+                {/* Photo Attachment Trigger */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 rounded-xl transition-all cursor-pointer shrink-0"
+                  title="Anexar Fotografia"
+                >
+                  <Camera size={18} />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoSelect}
+                  className="hidden"
+                />
+
+                {/* Microphone Trigger */}
+                <button
+                  type="button"
+                  onClick={handleMicClick}
+                  className={`p-2 rounded-xl transition-all cursor-pointer shrink-0 ${
+                    isRecording ? 'text-red-400 bg-red-500/20 animate-pulse' : 'text-gray-400 hover:text-amber-400 hover:bg-gray-900'
+                  }`}
+                  title="Falar por Voz"
+                >
+                  <Mic size={18} />
+                </button>
+
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={e => setInputText(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') processSendMessage(); }}
+                  placeholder="Digite sua dúvida ou anexe uma foto..."
+                  disabled={isProcessing}
+                  className="flex-1 bg-gray-900 border border-gray-800 rounded-2xl p-2 px-3 text-xs text-white placeholder-gray-500 focus:border-amber-500 focus:outline-none min-w-0 disabled:opacity-50"
+                />
+
+                <button
+                  onClick={() => processSendMessage()}
+                  disabled={isProcessing || (!inputText.trim() && !selectedImageBase64)}
+                  className="p-2 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-black font-extrabold transition-all active:scale-90 cursor-pointer shadow-md disabled:opacity-40 shrink-0"
+                  title="Enviar mensagem"
+                >
+                  <Send size={16} />
+                </button>
               </div>
-            )}
-          </div>
-        ))}
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Preview de Gravador de Voz */}
-      {audioUrl && (
-        <div className="p-2.5 sm:p-3 bg-gray-950 border-t border-gray-800 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Volume2 size={16} className="text-amber-400 shrink-0" />
-            <span className="text-[11px] text-gray-300 font-medium truncate">Áudio gravado ({recordingTime}s)</span>
-            <audio src={audioUrl} controls className="h-8 w-36 xs:w-44" />
-          </div>
-          <button
-            onClick={handleDiscardAudio}
-            className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-950/40 rounded-lg active:scale-90"
-          >
-            <Trash2 size={16} />
-          </button>
+            </>
+          )}
         </div>
       )}
-
-      {/* Form Input e Gravação de Voz */}
-      <div className="p-2 sm:p-3 bg-gray-950 border-t border-gray-800 flex items-center gap-1.5 sm:gap-2 w-full max-w-full">
-        {isRecording ? (
-          <div className="flex-1 flex items-center justify-between px-3 py-2 bg-red-950/40 border border-red-800/60 rounded-xl text-red-300 text-xs font-bold animate-pulse">
-            <span className="truncate">Gravando: {recordingTime}s</span>
-            <button
-              type="button"
-              onClick={handleStopRecording}
-              className="p-1.5 bg-red-600 hover:bg-red-500 text-white rounded-lg flex items-center gap-1 text-[11px] shrink-0"
-            >
-              <Square size={13} fill="currentColor" />
-              <span>Parar</span>
-            </button>
-          </div>
-        ) : (
-          <>
-            <input
-              type="text"
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') handlePrepareSend(input);
-              }}
-              placeholder="Digite sua dúvida ou use o microfone..."
-              className="flex-1 min-w-0 p-2.5 sm:p-3 bg-black border border-gray-800 rounded-xl text-xs text-white focus:border-amber-500 outline-none"
-            />
-
-            <button
-              type="button"
-              onClick={handleStartRecording}
-              className="p-2.5 sm:p-3 bg-gray-900 hover:bg-gray-800 text-amber-400 border border-gray-800 rounded-xl transition-colors shrink-0 active:scale-95"
-              title="Gravar Mensagem de Voz"
-            >
-              <Mic size={18} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handlePrepareSend(input)}
-              disabled={!input.trim() && !audioUrl}
-              className="p-2.5 sm:p-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded-xl transition-colors shadow-lg shadow-amber-600/20 shrink-0 active:scale-95"
-            >
-              <Send size={18} />
-            </button>
-          </>
-        )}
-      </div>
-
-      {/* Modal de Confirmação antes do envio */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="w-full max-w-sm bg-gray-900 border border-gray-800 p-5 rounded-3xl space-y-4 shadow-2xl">
-            <h4 className="text-sm font-bold text-white border-b border-gray-800 pb-2">Confirmar Envio de Mensagem</h4>
-            <div className="p-3 bg-black rounded-xl border border-gray-800 text-xs text-gray-200">
-              {pendingTextToSend || 'Mensagem em áudio pronta para envio.'}
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowConfirmModal(false)}
-                className="w-1/2 py-2 bg-gray-800 text-gray-300 rounded-xl text-xs font-bold hover:bg-gray-700"
-              >
-                Editar
-              </button>
-              <button
-                onClick={handleConfirmSend}
-                className="w-1/2 py-2 bg-amber-600 text-white rounded-xl text-xs font-bold hover:bg-amber-500"
-              >
-                Enviar Agora
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

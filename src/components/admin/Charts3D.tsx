@@ -1,12 +1,30 @@
-import {useState} from 'react';
-import {TrendingUp, DollarSign, BarChart3, PieChart, Package, Calendar, RefreshCw, Award, ArrowUpRight, ArrowDownRight} from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  BarChart3,
+  TrendingUp,
+  DollarSign,
+  Package,
+  Calendar,
+  Award,
+  Users,
+  ArrowUpRight,
+  ArrowDownRight,
+  RefreshCw,
+  PieChart,
+  ShoppingBag,
+  Filter,
+  Layers,
+  Sparkles
+} from 'lucide-react';
 
 interface Charts3DProps {
-  transactions: any[];
-  services: any[];
-  appointments: any[];
-  products: any[];
-  professionals: any[];
+  transactions?: any[];
+  services?: any[];
+  appointments?: any[];
+  products?: any[];
+  movements?: any[];
+  clients?: any[];
+  professionals?: any[];
 }
 
 export function Charts3D({
@@ -14,155 +32,231 @@ export function Charts3D({
   services = [],
   appointments = [],
   products = [],
+  movements = [],
+  clients = [],
   professionals = []
 }: Charts3DProps) {
-  const [period, setPeriod] = useState<'hoje' | 'semana' | 'mes' | 'todos'>('mes');
-  const [activeTab, setActiveTab] = useState<'faturamento' | 'comparativo' | 'profissionais' | 'servicos' | 'estoque'>('faturamento');
+  const [periodFilter, setPeriodFilter] = useState<'hoje' | '7dias' | 'mes' | '90dias' | 'todos'>('mes');
+  const [activeTab, setActiveTab] = useState<'faturamento' | 'produtos_servicos' | 'equipe' | 'estoque' | 'clientes'>('faturamento');
 
-  // Filter transactions by period
-  const filterByPeriod = (itemDateStr: string) => {
+  // Date Filtering Helper
+  const filterByPeriod = (itemDateStr?: string) => {
     if (!itemDateStr) return true;
     const date = new Date(itemDateStr);
     const now = new Date();
 
-    if (period === 'hoje') {
+    if (periodFilter === 'hoje') {
       return date.toDateString() === now.toDateString();
     }
-    if (period === 'semana') {
-      const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return date >= oneWeekAgo;
+    if (periodFilter === '7dias') {
+      const past = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      return date >= past;
     }
-    if (period === 'mes') {
+    if (periodFilter === 'mes') {
       return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+    }
+    if (periodFilter === '90dias') {
+      const past = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      return date >= past;
     }
     return true;
   };
 
-  const filteredTransactions = transactions.filter(t => filterByPeriod(t.date));
+  const filteredTransactions = transactions.filter(t => filterByPeriod(t.date || t.created_at));
+  const filteredAppointments = appointments.filter(a => filterByPeriod(a.start_time || a.created_at));
 
-  // Compute key financial metrics
-  const totalReceitas = filteredTransactions
+  // Key Real Metrics
+  const totalEntradas = filteredTransactions
     .filter(t => t.type === 'entrada')
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-  const totalDespesas = filteredTransactions
+  const totalSaidas = filteredTransactions
     .filter(t => t.type === 'saida')
     .reduce((sum, t) => sum + Number(t.amount || 0), 0);
 
-  const lucroLiquido = totalReceitas - totalDespesas;
+  const lucroLiquido = totalEntradas - totalSaidas;
 
-  // Monthly timeline for 3D Bar Chart
+  // Real Service Revenue vs Product Revenue
+  const vendasProdutos = filteredTransactions
+    .filter(t => t.type === 'entrada' && (t.category?.toLowerCase().includes('produto') || t.description?.toLowerCase().includes('venda')))
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0);
+
+  const vendasServicos = filteredTransactions
+    .filter(t => t.type === 'entrada' && (t.category?.toLowerCase().includes('serviço') || t.description?.toLowerCase().includes('atendimento')))
+    .reduce((sum, t) => sum + Number(t.amount || 0), 0) || (totalEntradas - vendasProdutos);
+
+  // Real Monthly Bar Data (Last 6 months)
   const monthsList = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
   const currentMonthIdx = new Date().getMonth();
-  const last6Months = Array.from({length: 6}, (_, i) => {
+  const monthly3DData = Array.from({ length: 6 }, (_, i) => {
     const idx = (currentMonthIdx - 5 + i + 12) % 12;
     return {
-      month: monthsList[idx],
-      idx,
+      monthLabel: monthsList[idx],
+      monthIdx: idx,
       receita: 0,
       despesa: 0
     };
   });
 
-  // Populate monthly data
   transactions.forEach(t => {
-    if (!t.date) return;
-    const d = new Date(t.date);
-    const mIdx = d.getMonth();
-    const found = last6Months.find(m => m.idx === mIdx);
+    const dStr = t.date || t.created_at;
+    if (!dStr) return;
+    const mIdx = new Date(dStr).getMonth();
+    const found = monthly3DData.find(m => m.monthIdx === mIdx);
     if (found) {
       if (t.type === 'entrada') found.receita += Number(t.amount || 0);
       else if (t.type === 'saida') found.despesa += Number(t.amount || 0);
     }
   });
 
-  // Ensure non-zero chart heights for visual 3D demonstration if data is new
-  const maxRevenueVal = Math.max(...last6Months.map(m => Math.max(m.receita, m.despesa)), 1000);
+  const maxChartVal = Math.max(...monthly3DData.flatMap(m => [m.receita, m.despesa]), 100);
 
-  // Professional performance distribution
-  const profStats = (professionals.length > 0 ? professionals : [
-    {name: 'Ozana', role: 'Proprietária & Master'},
-    {name: 'Carla', role: 'Especialista Capilar'},
-    {name: 'Juliana', role: 'Estética & Unhas'}
-  ]).map((p, idx) => {
-    const count = appointments.filter(a => a.professional_id === p.id || a.professional?.name === p.name).length || (idx + 1) * 8;
-    const revenue = count * 90;
-    return { name: p.name || `Profissional ${idx + 1}`, count, revenue };
-  });
+  // Professional Performance
+  const profStats = professionals.map(prof => {
+    const pAppts = filteredAppointments.filter(a => a.professional_id === prof.id || a.professional?.name === prof.name);
+    const count = pAppts.length;
+    const revenue = pAppts.reduce((sum, a) => sum + Number(a.services?.price || a.price || 80), 0);
+    return {
+      id: prof.id,
+      name: prof.name || 'Especialista',
+      count,
+      revenue
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
 
-  const totalProfRevenue = profStats.reduce((sum, p) => sum + p.revenue, 0) || 1;
+  // Top Products from Stock
+  const topProducts = [...products]
+    .sort((a, b) => Number(b.quantity || 0) - Number(a.quantity || 0))
+    .slice(0, 5);
 
-  // Top services distribution
-  const serviceStats = (services.length > 0 ? services : [
-    {name: 'Corte & Escova', price: 90},
-    {name: 'Hidratação Profunda', price: 120},
-    {name: 'Manicure & Pedicure', price: 70},
-    {name: 'Design de Sobrancelhas', price: 50}
-  ]).slice(0, 5).map((s, idx) => {
-    const count = appointments.filter(a => a.services?.name === s.name).length || (5 - idx) * 4;
-    return { name: s.name, count, price: s.price || 80, value: count * (s.price || 80) };
-  });
+  // Client Recurrence
+  const recurringClientsCount = clients.filter(c => {
+    const clientAppts = appointments.filter(a => a.client_id === c.id);
+    return clientAppts.length > 1;
+  }).length;
 
   return (
-    <div className="bg-gray-900/90 border border-gray-800 p-5 md:p-6 rounded-3xl space-y-6 shadow-2xl">
-      {/* Header & Filters */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-gray-800">
-        <div>
-          <span className="text-[10px] text-amber-500 uppercase tracking-widest font-bold">Relatórios & Inteligência</span>
-          <h3 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <BarChart3 className="text-amber-400" size={22} />
-            Gráficos Interativos 3D
+    <div className="space-y-6 max-w-6xl mx-auto text-left">
+      {/* Header Banner */}
+      <div className="bg-gradient-to-r from-gray-950 via-amber-950/30 to-gray-950 border border-amber-500/30 p-5 sm:p-6 rounded-3xl shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-700 text-black shadow-lg shadow-amber-500/20 shrink-0">
+            <BarChart3 size={24} className="stroke-[2.5]" />
+          </div>
+          <div>
+            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2">
+              <span>Relatórios & Gráficos 3D Reais</span>
+              <Sparkles size={18} className="text-amber-400" />
+            </h2>
+            <p className="text-xs text-gray-300 mt-0.5">
+              Análise financeira e operacional alimentada por registros reais do Supabase.
+            </p>
+          </div>
+        </div>
+
+        {/* Period Filter Pills */}
+        <div className="flex items-center gap-1.5 bg-black p-1.5 rounded-2xl border border-gray-800 self-start sm:self-center shrink-0">
+          <Filter size={14} className="text-amber-400 ml-1.5 mr-0.5" />
+          <button
+            onClick={() => setPeriodFilter('hoje')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              periodFilter === 'hoje' ? 'bg-amber-500 text-black font-black shadow-md' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Hoje
+          </button>
+          <button
+            onClick={() => setPeriodFilter('7dias')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              periodFilter === '7dias' ? 'bg-amber-500 text-black font-black shadow-md' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            7 Dias
+          </button>
+          <button
+            onClick={() => setPeriodFilter('mes')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              periodFilter === 'mes' ? 'bg-amber-500 text-black font-black shadow-md' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Mês Atual
+          </button>
+          <button
+            onClick={() => setPeriodFilter('todos')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              periodFilter === 'todos' ? 'bg-amber-500 text-black font-black shadow-md' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            Todos
+          </button>
+        </div>
+      </div>
+
+      {/* 3D Key Metrics Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {/* Entradas */}
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-950/40 via-gray-950 to-gray-950 border border-emerald-500/30 shadow-xl space-y-1 relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-emerald-400 uppercase tracking-widest">
+              Faturamento (Entradas)
+            </span>
+            <div className="p-2 rounded-xl bg-emerald-500/20 text-emerald-400">
+              <ArrowUpRight size={18} />
+            </div>
+          </div>
+          <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+            R$ {totalEntradas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
           </h3>
+          <p className="text-[10px] text-gray-400">
+            {filteredTransactions.filter(t => t.type === 'entrada').length} lançamentos de receita
+          </p>
         </div>
 
-        {/* Filter Period Selector */}
-        <div className="flex items-center gap-1.5 bg-black/60 p-1.5 rounded-2xl border border-gray-800">
-          {(['hoje', 'semana', 'mes', 'todos'] as const).map(pKey => (
-            <button
-              key={pKey}
-              onClick={() => setPeriod(pKey)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all ${
-                period === pKey
-                  ? 'bg-amber-500 text-black shadow-md font-bold'
-                  : 'text-gray-400 hover:text-white hover:bg-gray-900'
-              }`}
-            >
-              {pKey === 'hoje' ? 'Hoje' : pKey === 'semana' ? 'Esta Semana' : pKey === 'mes' ? 'Este Mês' : 'Todos'}
-            </button>
-          ))}
+        {/* Saídas */}
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-red-950/40 via-gray-950 to-gray-950 border border-red-500/30 shadow-xl space-y-1 relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-red-400 uppercase tracking-widest">
+              Despesas (Saídas)
+            </span>
+            <div className="p-2 rounded-xl bg-red-500/20 text-red-400">
+              <ArrowDownRight size={18} />
+            </div>
+          </div>
+          <h3 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+            R$ {totalSaidas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </h3>
+          <p className="text-[10px] text-gray-400">
+            {filteredTransactions.filter(t => t.type === 'saida').length} custos e pagamentos
+          </p>
+        </div>
+
+        {/* Lucro */}
+        <div className="p-5 rounded-3xl bg-gradient-to-br from-amber-950/50 via-gray-950 to-gray-950 border border-amber-500/40 shadow-xl space-y-1 relative overflow-hidden group">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-extrabold text-amber-400 uppercase tracking-widest">
+              Resultado Líquido
+            </span>
+            <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400">
+              <DollarSign size={18} />
+            </div>
+          </div>
+          <h3 className={`text-2xl sm:text-3xl font-black tracking-tight ${lucroLiquido >= 0 ? 'text-amber-300' : 'text-red-400'}`}>
+            R$ {lucroLiquido.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          </h3>
+          <p className="text-[10px] text-gray-400">
+            Margem operacional no período
+          </p>
         </div>
       </div>
 
-      {/* KPI Cards Strip */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-        <div className="bg-black/60 border border-gray-800 p-4 rounded-2xl">
-          <span className="text-[11px] text-gray-400 font-medium block">Total Receitas</span>
-          <span className="text-xl font-extrabold text-emerald-400 tabular-nums block mt-1">
-            R$ {totalReceitas.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-          </span>
-        </div>
-        <div className="bg-black/60 border border-gray-800 p-4 rounded-2xl">
-          <span className="text-[11px] text-gray-400 font-medium block">Total Despesas</span>
-          <span className="text-xl font-extrabold text-rose-400 tabular-nums block mt-1">
-            R$ {totalDespesas.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-          </span>
-        </div>
-        <div className="col-span-2 md:col-span-1 bg-gradient-to-br from-amber-950/40 to-black border border-amber-500/30 p-4 rounded-2xl">
-          <span className="text-[11px] text-amber-300 font-medium block">Resultado Líquido</span>
-          <span className={`text-xl font-extrabold tabular-nums block mt-1 ${lucroLiquido >= 0 ? 'text-amber-400' : 'text-red-400'}`}>
-            R$ {lucroLiquido.toLocaleString('pt-BR', {minimumFractionDigits: 2})}
-          </span>
-        </div>
-      </div>
-
-      {/* Selector Tabs for 3D Visualizations */}
-      <div className="flex border-b border-gray-800 gap-2 overflow-x-auto scrollbar-none pb-1">
+      {/* Tabs for Detailed Charts */}
+      <div className="flex items-center gap-2 border-b border-gray-800 pb-3 overflow-x-auto custom-scrollbar">
         {[
-          {id: 'faturamento', label: 'Evolução 3D', icon: TrendingUp},
-          {id: 'comparativo', label: 'Receitas x Despesas', icon: DollarSign},
-          {id: 'profissionais', label: 'Equipe 3D', icon: Award},
-          {id: 'servicos', label: 'Serviços Populares', icon: PieChart},
-          {id: 'estoque', label: 'Estoque 3D', icon: Package},
+          { id: 'faturamento', label: 'Evolução do Faturamento 3D', icon: TrendingUp },
+          { id: 'produtos_servicos', label: 'Produtos vs Serviços', icon: PieChart },
+          { id: 'equipe', label: 'Desempenho da Equipe', icon: Award },
+          { id: 'estoque', label: 'Estoque & Produtos', icon: Package },
+          { id: 'clientes', label: 'Clientes & Recorrência', icon: Users },
         ].map(tab => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -170,276 +264,222 @@ export function Charts3D({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
-                isActive
-                  ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30 shadow-sm'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-900/60'
+              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer ${
+                isActive 
+                  ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20 font-extrabold' 
+                  : 'bg-gray-900 text-gray-400 hover:text-white border border-gray-800'
               }`}
             >
-              <Icon size={16} />
+              <Icon size={15} />
               <span>{tab.label}</span>
             </button>
           );
         })}
       </div>
 
-      {/* 3D GRAPH 1: EVOLUÇÃO DE FATURAMENTO COM BARRAS TRIDIMENSIONAIS */}
+      {/* Tab 1: 3D Isometric Bar Chart */}
       {activeTab === 'faturamento' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <TrendingUp size={16} className="text-amber-400" />
-              Gráfico de Colunas 3D • Histórico Semestral
-            </h4>
-            <span className="text-[10px] text-gray-400">Efeito Tridimensional Isométrico</span>
-          </div>
-
-          <div className="bg-black/80 border border-gray-800 p-6 rounded-3xl relative overflow-hidden">
-            {/* Ambient Lighting Background Grid */}
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-amber-500/10 via-transparent to-transparent opacity-60 pointer-events-none" />
-
-            {/* 3D Bar Grid Canvas */}
-            <div className="h-64 flex items-end justify-around gap-2 md:gap-6 pt-8 pb-4 relative z-10">
-              {last6Months.map((m, idx) => {
-                const heightPct = Math.min(100, Math.max(12, (m.receita / maxRevenueVal) * 100));
-                return (
-                  <div key={idx} className="flex-1 flex flex-col items-center group relative">
-                    {/* Hover Value Badge */}
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute -top-10 bg-amber-500 text-black font-extrabold text-[10px] px-2 py-1 rounded-lg shadow-xl z-20 whitespace-nowrap">
-                      R$ {m.receita.toFixed(2)}
-                    </div>
-
-                    {/* 3D Bar Representation with Bevels, Top Cap & Drop Shadow */}
-                    <div className="w-full max-w-[48px] relative flex flex-col items-center justify-end" style={{height: `${heightPct}%`}}>
-                      {/* Top 3D Cylinder / Box Cap */}
-                      <div className="w-full h-3 bg-gradient-to-r from-amber-300 via-amber-400 to-amber-500 rounded-t-full shadow-lg border-b border-amber-200/40 transform -rotate-12 scale-105 transition-transform group-hover:scale-110" />
-
-                      {/* Main 3D Cylinder Body with Specular Highlight */}
-                      <div className="w-full flex-1 bg-gradient-to-r from-amber-700 via-amber-600 to-amber-500 rounded-b-md shadow-[0_10px_25px_rgba(217,119,6,0.3)] relative overflow-hidden border-x border-amber-400/20 transition-all duration-300 group-hover:brightness-125">
-                        {/* Specular vertical streak */}
-                        <div className="absolute top-0 bottom-0 left-1/4 w-1 bg-white/30 blur-[1px]" />
-                        <div className="absolute top-0 bottom-0 right-1/4 w-1 bg-black/20" />
-                      </div>
-
-                      {/* 3D Base Shadow Oval */}
-                      <div className="w-full h-2 bg-amber-950/80 rounded-full blur-[2px] mt-1 opacity-70" />
-                    </div>
-
-                    {/* Month Label */}
-                    <span className="text-[11px] font-bold text-gray-400 group-hover:text-amber-400 mt-3 transition-colors">
-                      {m.month}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] text-gray-400 pt-3 border-t border-gray-800">
-              <span className="flex items-center gap-1">
-                <span className="w-3 h-3 rounded-full bg-amber-500 shadow-[0_0_8px_#d97706]" />
-                Volume de Faturamento (Eixo Z Relevo)
-              </span>
-              <span>Visualização em tempo real</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3D GRAPH 2: RECEITAS VS DESPESAS DUPLA COLUNA 3D */}
-      {activeTab === 'comparativo' && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h4 className="text-sm font-bold text-white flex items-center gap-2">
-              <DollarSign size={16} className="text-emerald-400" />
-              Comparativo 3D • Receitas (Dourado) vs Despesas (Vermelho)
-            </h4>
-            <span className="text-[10px] text-gray-400">BARRAS EXTRUDADAS</span>
-          </div>
-
-          <div className="bg-black/80 border border-gray-800 p-6 rounded-3xl relative">
-            <div className="h-64 flex items-end justify-around gap-2 md:gap-4 pt-8 pb-4">
-              {last6Months.map((m, idx) => {
-                const recHeight = Math.min(100, Math.max(10, (m.receita / maxRevenueVal) * 100));
-                const despHeight = Math.min(100, Math.max(10, (m.despesa / maxRevenueVal) * 100));
-
-                return (
-                  <div key={idx} className="flex-1 flex flex-col items-center">
-                    <div className="flex items-end gap-1.5 w-full justify-center h-full">
-                      {/* Receita 3D Bar */}
-                      <div className="w-1/2 max-w-[20px] flex flex-col items-center justify-end group relative" style={{height: `${recHeight}%`}}>
-                        <div className="w-full h-2 bg-emerald-300 rounded-t-full shadow-md" />
-                        <div className="w-full flex-1 bg-gradient-to-r from-emerald-700 via-emerald-600 to-emerald-500 rounded-b-xs shadow-[0_8px_20px_rgba(16,185,129,0.3)]" />
-                      </div>
-
-                      {/* Despesa 3D Bar */}
-                      <div className="w-1/2 max-w-[20px] flex flex-col items-center justify-end group relative" style={{height: `${despHeight}%`}}>
-                        <div className="w-full h-2 bg-rose-300 rounded-t-full shadow-md" />
-                        <div className="w-full flex-1 bg-gradient-to-r from-rose-700 via-rose-600 to-rose-500 rounded-b-xs shadow-[0_8px_20px_rgba(244,63,94,0.3)]" />
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-semibold text-gray-400 mt-3">{m.month}</span>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center justify-center gap-6 text-[11px] pt-3 border-t border-gray-800">
-              <span className="flex items-center gap-2 text-emerald-400 font-semibold">
-                <span className="w-3 h-3 rounded-sm bg-emerald-500 shadow-sm" /> Receitas Brutas
-              </span>
-              <span className="flex items-center gap-2 text-rose-400 font-semibold">
-                <span className="w-3 h-3 rounded-sm bg-rose-500 shadow-sm" /> Despesas Operacionais
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3D GRAPH 3: DESEMPENHO DOS PROFISSIONAIS */}
-      {activeTab === 'profissionais' && (
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <Award size={16} className="text-amber-400" />
-            Desempenho da Equipe de Especialistas
-          </h4>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-black/80 border border-gray-800 p-5 rounded-3xl space-y-4">
-              <h5 className="text-xs font-bold text-gray-300 uppercase tracking-wider">Atendimentos por Profissional</h5>
-              <div className="space-y-3">
-                {profStats.map((p, i) => {
-                  const pct = Math.round((p.revenue / totalProfRevenue) * 100);
-                  return (
-                    <div key={i} className="space-y-1.5">
-                      <div className="flex justify-between text-xs font-semibold">
-                        <span className="text-white">{p.name}</span>
-                        <span className="text-amber-400">{p.count} serviços ({pct}%)</span>
-                      </div>
-                      <div className="w-full bg-gray-950 h-4 rounded-xl border border-gray-800 p-0.5 overflow-hidden shadow-inner">
-                        <div
-                          className="h-full bg-gradient-to-r from-amber-600 via-amber-500 to-amber-400 rounded-lg transition-all duration-500 shadow-[0_0_12px_rgba(217,119,6,0.4)]"
-                          style={{width: `${Math.max(8, pct)}%`}}
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="bg-black/80 border border-gray-800 p-5 rounded-3xl flex flex-col justify-center items-center text-center space-y-3">
-              <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-amber-700 via-amber-500 to-amber-300 p-2 shadow-[0_0_30px_rgba(217,119,6,0.4)] flex items-center justify-center transform -rotate-12">
-                <div className="w-full h-full bg-black rounded-full flex flex-col items-center justify-center border border-amber-400/40">
-                  <Award size={28} className="text-amber-400" />
-                  <span className="text-[10px] text-gray-400 font-bold mt-1">Especialistas</span>
-                </div>
-              </div>
-              <div>
-                <h5 className="text-sm font-bold text-white">Equipe Ativa & Engajada</h5>
-                <p className="text-xs text-gray-400 mt-1 max-w-xs">
-                  Acompanhe a distribuição de atendimentos e comissões do time de profissionais do Salão Bela Mulher.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3D GRAPH 4: SERVIÇOS MAIS REALIZADOS */}
-      {activeTab === 'servicos' && (
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <PieChart size={16} className="text-amber-400" />
-            Serviços Mais Procurados na Vitrine
-          </h4>
-
-          <div className="bg-black/80 border border-gray-800 p-5 rounded-3xl space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-              <div className="space-y-3">
-                {serviceStats.map((s, i) => (
-                  <div key={i} className="p-3 bg-gray-950 rounded-2xl border border-gray-800 flex justify-between items-center">
-                    <div>
-                      <p className="text-xs font-bold text-white">{s.name}</p>
-                      <p className="text-[10px] text-gray-400">Preço tabela: R$ {s.price}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-extrabold text-amber-400">{s.count} agendamentos</p>
-                      <p className="text-[10px] text-emerald-400">R$ {s.value}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Isometric 3D Ring Effect */}
-              <div className="p-6 bg-gradient-to-b from-gray-950 to-black rounded-3xl border border-gray-800 flex flex-col items-center justify-center text-center space-y-3">
-                <div className="relative w-36 h-36 flex items-center justify-center">
-                  <div className="absolute inset-0 rounded-full border-8 border-amber-500/30 animate-spin" style={{animationDuration: '15s'}} />
-                  <div className="absolute inset-2 rounded-full border-8 border-amber-500 border-t-transparent shadow-[0_0_20px_#d97706]" />
-                  <div className="text-center">
-                    <span className="text-2xl font-black text-amber-400 block">{serviceStats.reduce((sum, s) => sum + s.count, 0)}</span>
-                    <span className="text-[10px] text-gray-400 uppercase font-bold">Total Serviços</span>
-                  </div>
-                </div>
-                <p className="text-xs text-gray-400">Acompanhamento contínuo de demanda</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 3D GRAPH 5: INDICADORES DE ESTOQUE 3D */}
-      {activeTab === 'estoque' && (
-        <div className="space-y-4">
-          <h4 className="text-sm font-bold text-white flex items-center gap-2">
-            <Package size={16} className="text-amber-400" />
-            Níveis e Alertas de Estoque em 3D
-          </h4>
-
-          <div className="bg-black/80 border border-gray-800 p-5 rounded-3xl space-y-4">
-            {products.length === 0 ? (
-              <p className="text-center text-xs text-gray-400 py-6">
-                Nenhum produto cadastrado no momento. Cadastre produtos no módulo Estoque para visualizar a análise tridimensional.
+        <div className="bg-gray-950 border border-amber-500/30 p-6 rounded-3xl space-y-6 shadow-2xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <BarChart3 size={18} className="text-amber-400" />
+                <span>Histórico Tridimensional dos Últimos 6 Meses</span>
+              </h3>
+              <p className="text-xs text-gray-400">
+                Colunas em perspectiva 3D comparando receitas (dourado) e despesas (vermelho).
               </p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {products.map(p => {
-                  const isLow = Number(p.quantity || 0) <= Number(p.min_quantity || 5);
-                  const maxVal = Math.max(Number(p.quantity || 0) * 1.5, 20);
-                  const pct = Math.min(100, (Number(p.quantity || 0) / maxVal) * 100);
+            </div>
 
-                  return (
-                    <div key={p.id} className="p-4 bg-gray-950 border border-gray-800 rounded-2xl space-y-2">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <p className="text-xs font-bold text-white">{p.name}</p>
-                          <p className="text-[10px] text-gray-400">{p.category || 'Geral'}</p>
-                        </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          isLow ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-emerald-500/20 text-emerald-400'
-                        }`}>
-                          {p.quantity || 0} un.
-                        </span>
-                      </div>
-
-                      {/* 3D Tube bar indicator */}
-                      <div className="w-full bg-black h-3 rounded-full border border-gray-800 p-0.5 overflow-hidden relative shadow-inner">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${
-                            isLow ? 'bg-gradient-to-r from-red-600 to-rose-400 shadow-[0_0_10px_#f43f5e]' : 'bg-gradient-to-r from-emerald-600 to-emerald-400 shadow-[0_0_10px_#10b981]'
-                          }`}
-                          style={{width: `${Math.max(5, pct)}%`}}
-                        />
-                      </div>
-                      {isLow && (
-                        <p className="text-[10px] text-red-400 font-semibold flex items-center gap-1">
-                          ⚠️ Estoque abaixo do mínimo ({p.min_quantity || 5} un.)
-                        </p>
-                      )}
-                    </div>
-                  );
-                })}
+            <div className="flex items-center gap-4 text-xs font-bold">
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-md bg-amber-400 shadow-sm" />
+                <span className="text-gray-300">Receitas</span>
               </div>
-            )}
+              <div className="flex items-center gap-1.5">
+                <span className="w-3 h-3 rounded-md bg-red-500 shadow-sm" />
+                <span className="text-gray-300">Despesas</span>
+              </div>
+            </div>
+          </div>
+
+          {/* 3D Bar Grid */}
+          <div className="pt-8 pb-4 px-2 min-h-[260px] flex items-end justify-between gap-2 sm:gap-6 border-b border-gray-800">
+            {monthly3DData.map((m, idx) => {
+              const recPct = maxChartVal > 0 ? Math.min(100, (m.receita / maxChartVal) * 100) : 0;
+              const despPct = maxChartVal > 0 ? Math.min(100, (m.despesa / maxChartVal) * 100) : 0;
+
+              return (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-3 group">
+                  <div className="w-full flex justify-center items-end gap-1 sm:gap-2 h-48">
+                    {/* Receita Bar */}
+                    <div className="relative w-1/2 max-w-[28px] h-full flex items-end">
+                      <div
+                        style={{ height: `${Math.max(8, recPct)}%` }}
+                        className="w-full bg-gradient-to-t from-amber-700 via-amber-500 to-amber-300 rounded-t-lg shadow-lg shadow-amber-500/20 transition-all duration-500 transform group-hover:scale-105 border-t border-amber-200"
+                        title={`Receita: R$ ${m.receita.toFixed(2)}`}
+                      />
+                    </div>
+
+                    {/* Despesa Bar */}
+                    <div className="relative w-1/2 max-w-[28px] h-full flex items-end">
+                      <div
+                        style={{ height: `${Math.max(8, despPct)}%` }}
+                        className="w-full bg-gradient-to-t from-red-900 via-red-600 to-red-400 rounded-t-lg shadow-lg shadow-red-500/20 transition-all duration-500 transform group-hover:scale-105 border-t border-red-300"
+                        title={`Despesa: R$ ${m.despesa.toFixed(2)}`}
+                      />
+                    </div>
+                  </div>
+
+                  <span className="text-xs font-bold text-gray-300 group-hover:text-amber-400 transition-colors">
+                    {m.monthLabel}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 2: Products vs Services Distribution */}
+      {activeTab === 'produtos_servicos' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-gray-950 border border-amber-500/30 p-6 rounded-3xl space-y-4 shadow-xl">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <PieChart size={18} className="text-amber-400" />
+              <span>Composição da Receita no Período</span>
+            </h3>
+
+            <div className="space-y-3 pt-2">
+              <div className="p-4 rounded-2xl bg-gray-900 border border-gray-800 space-y-1">
+                <div className="flex justify-between text-xs font-bold">
+                  <span className="text-amber-400">Serviços e Procedimentos</span>
+                  <span className="text-white">R$ {vendasServicos.toFixed(2)}</span>
+                </div>
+                <div className="w-full h-3 rounded-full bg-black overflow-hidden p-0.5 border border-gray-800">
+                  <div
+                    style={{ width: `${totalEntradas > 0 ? (vendasServicos / totalEntradas) * 100 : 50}%` }}
+                    className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full"
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-gray-900 border border-gray-800 space-y-1">
+                <div className="flex justify-between text-xs font-bold">
+                  <span className="text-emerald-400">Venda de Produtos Cosméticos</span>
+                  <span className="text-white">R$ {vendasProdutos.toFixed(2)}</span>
+                </div>
+                <div className="w-full h-3 rounded-full bg-black overflow-hidden p-0.5 border border-gray-800">
+                  <div
+                    style={{ width: `${totalEntradas > 0 ? (vendasProdutos / totalEntradas) * 100 : 50}%` }}
+                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-300 rounded-full"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* DRE Summary */}
+          <div className="bg-gray-950 border border-amber-500/30 p-6 rounded-3xl space-y-4 shadow-xl">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <DollarSign size={18} className="text-amber-400" />
+              <span>Resumo do Demonstrativo Financeiro (DRE)</span>
+            </h3>
+
+            <div className="space-y-2 text-xs font-medium">
+              <div className="flex justify-between p-3 rounded-xl bg-gray-900 text-gray-300">
+                <span>Receita Bruta Total:</span>
+                <strong className="text-emerald-400">R$ {totalEntradas.toFixed(2)}</strong>
+              </div>
+              <div className="flex justify-between p-3 rounded-xl bg-gray-900 text-gray-300">
+                <span>(-) Despesas Operacionais:</span>
+                <strong className="text-red-400">R$ {totalSaidas.toFixed(2)}</strong>
+              </div>
+              <div className="flex justify-between p-3 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 font-black">
+                <span>(=) Lucro Líquido do Período:</span>
+                <strong className="text-sm">R$ {lucroLiquido.toFixed(2)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Staff Performance */}
+      {activeTab === 'equipe' && (
+        <div className="bg-gray-950 border border-amber-500/30 p-6 rounded-3xl space-y-4 shadow-xl">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Award size={18} className="text-amber-400" />
+            <span>Desempenho dos Profissionais (Atendimentos & Faturamento)</span>
+          </h3>
+
+          <div className="space-y-3">
+            {profStats.map((prof, idx) => (
+              <div key={prof.id || idx} className="p-4 rounded-2xl bg-gray-900 border border-gray-800 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-black flex items-center justify-center">
+                    #{idx + 1}
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">{prof.name}</h4>
+                    <p className="text-[11px] text-gray-400">{prof.count} procedimentos realizados</p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-xs font-black text-amber-300 block">
+                    R$ {prof.revenue.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] text-gray-400">faturamento gerado</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Stock & Products */}
+      {activeTab === 'estoque' && (
+        <div className="bg-gray-950 border border-amber-500/30 p-6 rounded-3xl space-y-4 shadow-xl">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Package size={18} className="text-amber-400" />
+            <span>Produtos com Maior Volume em Estoque</span>
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {topProducts.map(prod => (
+              <div key={prod.id} className="p-4 rounded-2xl bg-gray-900 border border-gray-800 space-y-2">
+                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider block">
+                  {prod.category}
+                </span>
+                <h4 className="text-xs font-bold text-white truncate">{prod.name}</h4>
+                <div className="flex justify-between items-baseline pt-1 border-t border-gray-800 text-xs">
+                  <span className="text-gray-400">Qtd: <strong className="text-white">{prod.quantity} un</strong></span>
+                  <span className="text-amber-300 font-bold">R$ {Number(prod.sale_price).toFixed(2)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 5: Clients & Recurrence */}
+      {activeTab === 'clientes' && (
+        <div className="bg-gray-950 border border-amber-500/30 p-6 rounded-3xl space-y-4 shadow-xl">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+            <Users size={18} className="text-amber-400" />
+            <span>Engajamento & Fidelização de Clientes</span>
+          </h3>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-5 rounded-2xl bg-gray-900 border border-gray-800 space-y-1">
+              <span className="text-xs text-gray-400 font-bold block">Total de Clientes Cadastrados</span>
+              <strong className="text-2xl font-black text-white">{clients.length} clientes</strong>
+            </div>
+
+            <div className="p-5 rounded-2xl bg-gray-900 border border-gray-800 space-y-1">
+              <span className="text-xs text-amber-400 font-bold block">Clientes Recorrentes (&gt;1 Atendimento)</span>
+              <strong className="text-2xl font-black text-amber-300">{recurringClientsCount} clientesVIP</strong>
+            </div>
           </div>
         </div>
       )}

@@ -1,22 +1,43 @@
-import React, {useState, useEffect} from 'react';
-import {Image, Video, Plus, Trash2, Play, Upload} from 'lucide-react';
-import {dataService} from '../../lib/data';
-import {uploadMedia} from '../../lib/storage';
+import React, { useState, useEffect } from 'react';
+import {
+  Image,
+  Video,
+  Plus,
+  Trash2,
+  Play,
+  Upload,
+  Sparkles,
+  Scissors,
+  ShoppingBag,
+  QrCode,
+  Globe,
+  Palette,
+  Eye,
+  CheckCircle,
+  RefreshCw,
+  FolderOpen
+} from 'lucide-react';
+import { dataService } from '../../lib/data';
+import { uploadMedia } from '../../lib/storage';
 
 export function MediaManager() {
-  const [activeTab, setActiveTab] = useState<'banners' | 'videos'>('banners');
+  const [activeCategory, setActiveCategory] = useState<
+    'identidade' | 'banners' | 'videos_916' | 'galeria' | 'produtos' | 'cortes' | 'atendimento' | 'pix'
+  >('banners');
+
+  const [loading, setLoading] = useState(true);
   const [banners, setBanners] = useState<any[]>([]);
   const [videos, setVideos] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [products, setProducts] = useState<any[]>([]);
+  const [pixConfig, setPixConfig] = useState<any>(null);
 
-  // New Banner form
+  // Forms and Modals
   const [showAddBanner, setShowAddBanner] = useState(false);
   const [bannerTitle, setBannerTitle] = useState('');
   const [bannerSubtitle, setBannerSubtitle] = useState('');
   const [bannerUrl, setBannerUrl] = useState('/src/assets/images/carousel_salon_1_1793799835801.jpg');
   const [uploadingBanner, setUploadingBanner] = useState(false);
 
-  // New Video form
   const [showAddVideo, setShowAddVideo] = useState(false);
   const [videoTitle, setVideoTitle] = useState('');
   const [videoUrl, setVideoUrl] = useState('');
@@ -24,14 +45,21 @@ export function MediaManager() {
   const [videoThumb, setVideoThumb] = useState('/src/assets/images/vertical_salon_style_1_1793799836206.jpg');
   const [uploadingVideo, setUploadingVideo] = useState(false);
 
+  // Media preview modal
+  const [previewMediaUrl, setPreviewMediaUrl] = useState<string | null>(null);
+
   const loadMedia = async () => {
     setLoading(true);
-    const [bRes, vRes] = await Promise.all([
+    const [bRes, vRes, pRes, pixRes] = await Promise.all([
       dataService.getBanners(),
-      dataService.getVideos916()
+      dataService.getVideos916(),
+      dataService.getProducts(),
+      dataService.getPixConfig()
     ]);
     if (bRes.data) setBanners(bRes.data);
     if (vRes.data) setVideos(vRes.data);
+    if (pRes.data) setProducts(pRes.data);
+    if (pixRes.data) setPixConfig(pixRes.data);
     setLoading(false);
   };
 
@@ -39,7 +67,10 @@ export function MediaManager() {
     loadMedia();
   }, []);
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'banner' | 'video_file' | 'video_thumb') => {
+  const handleFileUpload = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+    target: 'banner' | 'video_file' | 'video_thumb' | 'product_img' | 'pix_qr'
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -57,8 +88,16 @@ export function MediaManager() {
         const url = await uploadMedia('media-banners', 'thumbnails/thumb', file);
         setVideoThumb(url);
       }
-    } catch (err: any) {
-      alert(`Falha no upload: ${err.message || 'Verifique se o bucket media-banners foi criado no Supabase Storage.'}`);
+    } catch {
+      // FileReader Base64 fallback if storage bucket fails
+      const reader = new FileReader();
+      reader.onload = ev => {
+        const result = ev.target?.result as string;
+        if (target === 'banner') setBannerUrl(result);
+        if (target === 'video_file') setVideoUrl(result);
+        if (target === 'video_thumb') setVideoThumb(result);
+      };
+      reader.readAsDataURL(file);
     } finally {
       setUploadingBanner(false);
       setUploadingVideo(false);
@@ -73,7 +112,7 @@ export function MediaManager() {
       title: bannerTitle,
       subtitle: bannerSubtitle,
       image_url: bannerUrl,
-      link_type: 'general',
+      tag: 'Destaque VIP',
       is_active: true
     });
 
@@ -101,248 +140,319 @@ export function MediaManager() {
   };
 
   const handleDeleteBanner = async (id: string) => {
-    if (confirm('Deseja excluir este banner?')) {
-      await dataService.deleteBanner(id);
-      await loadMedia();
-    }
+    if (!confirm('Deseja realmente remover este banner do carrossel?')) return;
+    await dataService.deleteBanner(id);
+    await loadMedia();
   };
 
   const handleDeleteVideo = async (id: string) => {
-    if (confirm('Deseja excluir este vídeo 9:16?')) {
-      await dataService.deleteVideo916(id);
-      await loadMedia();
-    }
+    if (!confirm('Deseja realmente remover esta mídia 9:16?')) return;
+    await dataService.deleteVideo916(id);
+    await loadMedia();
   };
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between pb-3 border-b border-gray-800">
-        <div>
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Image size={18} className="text-amber-400" />
-            <span>Gestão de Banners & Vídeos 9:16</span>
-          </h3>
-          <p className="text-xs text-gray-400">Gerencie a vitrine de destaque e as histórias em vídeo na página inicial.</p>
+    <div className="space-y-6 max-w-6xl mx-auto text-left">
+      {/* Title Header */}
+      <div className="bg-gradient-to-r from-gray-950 via-amber-950/30 to-gray-950 border border-amber-500/30 p-5 sm:p-6 rounded-3xl shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-amber-400 via-amber-500 to-amber-700 text-black shadow-lg shadow-amber-500/20 shrink-0">
+            <FolderOpen size={24} className="stroke-[2.5]" />
+          </div>
+          <div>
+            <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
+              Central de Mídias e Uploads (Exclusivo ADM)
+            </h2>
+            <p className="text-xs text-gray-300 mt-0.5">
+              Envie, organize, substitua e gerencie todas as imagens e vídeos oficiais do aplicativo.
+            </p>
+          </div>
         </div>
       </div>
 
-      <div className="flex border-b border-gray-800 gap-2">
-        <button
-          onClick={() => setActiveTab('banners')}
-          className={`pb-2.5 px-4 text-xs font-bold transition-all ${
-            activeTab === 'banners'
-              ? 'text-amber-400 border-b-2 border-amber-500'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Banners Promocionais ({banners.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('videos')}
-          className={`pb-2.5 px-4 text-xs font-bold transition-all ${
-            activeTab === 'videos'
-              ? 'text-amber-400 border-b-2 border-amber-500'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Vídeos Verticais 9:16 ({videos.length})
-        </button>
+      {/* Category Pills */}
+      <div className="flex items-center gap-2 border-b border-gray-800 pb-3 overflow-x-auto custom-scrollbar">
+        {[
+          { id: 'banners', label: 'Carrossel & Banners', icon: Image },
+          { id: 'videos_916', label: 'Vídeos & Fotos 9:16', icon: Video },
+          { id: 'produtos', label: 'Fotos de Produtos', icon: ShoppingBag },
+          { id: 'cortes', label: 'Cortes & Tranças', icon: Scissors },
+          { id: 'pix', label: 'QR Code Pix', icon: QrCode },
+          { id: 'identidade', label: 'Identidade Visual', icon: Palette },
+        ].map(cat => {
+          const Icon = cat.icon;
+          const isActive = activeCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id as any)}
+              className={`px-4 py-2 rounded-2xl text-xs font-bold transition-all whitespace-nowrap flex items-center gap-2 cursor-pointer ${
+                isActive 
+                  ? 'bg-amber-500 text-black font-black shadow-lg shadow-amber-500/20' 
+                  : 'bg-gray-900 text-gray-400 hover:text-white border border-gray-800'
+              }`}
+            >
+              <Icon size={15} />
+              <span>{cat.label}</span>
+            </button>
+          );
+        })}
       </div>
 
-      {activeTab === 'banners' && (
+      {/* Category 1: Banners */}
+      {activeCategory === 'banners' && (
         <div className="space-y-4">
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Banners do Carrossel Principal ({banners.length})
+            </h3>
             <button
               onClick={() => setShowAddBanner(true)}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+              className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 text-black font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-md hover:from-amber-300 cursor-pointer"
             >
-              <Plus size={15} />
-              <span>Adicionar Banner</span>
+              <Plus size={16} />
+              <span>Adicionar Novo Banner</span>
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {banners.map(b => (
-              <div key={b.id} className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden flex flex-col">
-                <img src={b.image_url} alt={b.title} className="w-full h-36 object-cover" />
-                <div className="p-3 flex-1 flex flex-col justify-between space-y-2">
-                  <div>
-                    <h5 className="font-bold text-white text-xs">{b.title}</h5>
-                    <p className="text-[11px] text-gray-400">{b.subtitle}</p>
-                  </div>
-                  <div className="flex justify-end pt-2 border-t border-gray-800">
-                    <button
-                      onClick={() => handleDeleteBanner(b.id)}
-                      className="text-red-400 hover:text-red-300 text-xs flex items-center gap-1"
-                    >
-                      <Trash2 size={14} /> Excluir
-                    </button>
-                  </div>
+          {/* Form Modal */}
+          {showAddBanner && (
+            <form onSubmit={handleCreateBanner} className="p-5 bg-gray-950 border border-amber-500/40 rounded-3xl space-y-4 animate-in fade-in">
+              <h4 className="text-xs font-black text-amber-400 uppercase tracking-widest">
+                Cadastrar Banner no Carrossel
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  placeholder="Título do Banner"
+                  value={bannerTitle}
+                  onChange={e => setBannerTitle(e.target.value)}
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Subtítulo / Descrição"
+                  value={bannerSubtitle}
+                  onChange={e => setBannerSubtitle(e.target.value)}
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-gray-300 font-bold block">Imagem do Banner</label>
+                <div className="flex items-center gap-3">
+                  <label className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-amber-400 font-bold rounded-xl text-xs border border-amber-500/30 cursor-pointer flex items-center gap-2 shrink-0">
+                    <Upload size={14} />
+                    <span>{uploadingBanner ? 'Carregando...' : 'Enviar Arquivo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={e => handleFileUpload(e, 'banner')}
+                      className="hidden"
+                      disabled={uploadingBanner}
+                    />
+                  </label>
+                  <input
+                    type="text"
+                    value={bannerUrl}
+                    onChange={e => setBannerUrl(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-gray-300"
+                    placeholder="Ou informe a URL da imagem"
+                  />
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
-      {activeTab === 'videos' && (
-        <div className="space-y-4">
-          <div className="flex justify-end">
-            <button
-              onClick={() => setShowAddVideo(true)}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
-            >
-              <Plus size={15} />
-              <span>Adicionar Vídeo Story 9:16</span>
-            </button>
-          </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddBanner(false)}
+                  className="px-4 py-2 bg-gray-900 text-gray-400 font-bold rounded-xl text-xs hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 text-black font-extrabold rounded-xl text-xs shadow-md"
+                >
+                  Salvar Banner
+                </button>
+              </div>
+            </form>
+          )}
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {videos.map(v => (
-              <div key={v.id} className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden flex flex-col">
-                <div className="relative aspect-[9/16] bg-black">
-                  <img src={v.thumbnail} alt={v.title} className="w-full h-full object-cover opacity-80" />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="p-2.5 rounded-full bg-amber-500/80 text-black">
-                      <Play size={18} fill="currentColor" />
-                    </div>
-                  </div>
-                </div>
-                <div className="p-2.5 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h5 className="font-bold text-white text-xs truncate">{v.title}</h5>
-                    <p className="text-[10px] text-gray-400 truncate">{v.author}</p>
-                  </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {banners.map(ban => (
+              <div key={ban.id} className="p-4 bg-gray-950 border border-gray-800 rounded-3xl space-y-3 relative group">
+                <div className="aspect-[16/9] rounded-2xl overflow-hidden bg-black border border-gray-800 relative">
+                  <img src={ban.image_url} alt={ban.title} className="w-full h-full object-cover" />
                   <button
-                    onClick={() => handleDeleteVideo(v.id)}
-                    className="mt-2 text-red-400 hover:text-red-300 text-[11px] flex items-center gap-1"
+                    onClick={() => handleDeleteBanner(ban.id)}
+                    className="absolute top-3 right-3 p-2 rounded-xl bg-black/80 text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-md cursor-pointer"
+                    title="Remover Banner"
                   >
-                    <Trash2 size={13} /> Excluir
+                    <Trash2 size={16} />
                   </button>
                 </div>
+
+                <div>
+                  <h4 className="text-sm font-bold text-white truncate">{ban.title}</h4>
+                  <p className="text-xs text-gray-400 truncate">{ban.subtitle || 'Banner Ativo'}</p>
+                </div>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* Modal Banner */}
-      {showAddBanner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <form onSubmit={handleCreateBanner} className="w-full max-w-md bg-gray-900 border border-gray-800 p-6 rounded-3xl space-y-3">
-            <h4 className="text-base font-bold text-white pb-2 border-b border-gray-800">Novo Banner</h4>
-            <div>
-              <label className="text-xs text-gray-300 block mb-1">Título do Banner</label>
-              <input
-                type="text"
-                required
-                value={bannerTitle}
-                onChange={e => setBannerTitle(e.target.value)}
-                placeholder="Ex: Especial de Verão"
-                className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-300 block mb-1">Subtítulo</label>
-              <input
-                type="text"
-                value={bannerSubtitle}
-                onChange={e => setBannerSubtitle(e.target.value)}
-                placeholder="Ex: Desconto exclusivo em pacotes capilares"
-                className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-300 block mb-1">Upload da Imagem (Supabase Storage)</label>
-              <div className="flex gap-2 items-center mb-2">
+      {/* Category 2: Videos 9:16 */}
+      {activeCategory === 'videos_916' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Vídeos & Fotos Verticais 9:16 ({videos.length})
+            </h3>
+            <button
+              onClick={() => setShowAddVideo(true)}
+              className="px-4 py-2 bg-gradient-to-r from-amber-400 to-amber-500 text-black font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-md hover:from-amber-300 cursor-pointer"
+            >
+              <Plus size={16} />
+              <span>Cadastrar Mídia 9:16</span>
+            </button>
+          </div>
+
+          {/* Form Modal */}
+          {showAddVideo && (
+            <form onSubmit={handleCreateVideo} className="p-5 bg-gray-950 border border-amber-500/40 rounded-3xl space-y-4 animate-in fade-in">
+              <h4 className="text-xs font-black text-amber-400 uppercase tracking-widest">
+                Cadastrar Mídia Vertical 9:16
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <input
-                  type="file"
-                  accept="image/*"
-                  onChange={e => handleFileUpload(e, 'banner')}
-                  className="hidden"
-                  id="banner-file-input"
+                  type="text"
+                  placeholder="Título da Mídia (Ex: Morena Iluminada)"
+                  value={videoTitle}
+                  onChange={e => setVideoTitle(e.target.value)}
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                  required
                 />
-                <label
-                  htmlFor="banner-file-input"
-                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-amber-400 text-xs rounded-xl font-bold cursor-pointer flex items-center gap-1.5"
-                >
-                  <Upload size={14} />
-                  <span>{uploadingBanner ? 'Enviando...' : 'Escolher Imagem'}</span>
-                </label>
+                <input
+                  type="text"
+                  placeholder="Autor / Especialista (Ex: Carla Silva)"
+                  value={videoAuthor}
+                  onChange={e => setVideoAuthor(e.target.value)}
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-2.5 text-xs text-white focus:border-amber-500 focus:outline-none"
+                />
               </div>
-              <input
-                type="text"
-                value={bannerUrl}
-                onChange={e => setBannerUrl(e.target.value)}
-                placeholder="URL da Imagem"
-                className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
-              />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={() => setShowAddBanner(false)} className="w-1/2 py-2 bg-gray-800 text-xs text-gray-300 rounded-xl font-bold">Cancelar</button>
-              <button type="submit" disabled={uploadingBanner} className="w-1/2 py-2 bg-amber-600 text-xs text-white rounded-xl font-bold">Salvar Banner</button>
-            </div>
-          </form>
+
+              <div className="space-y-2">
+                <label className="text-xs text-gray-300 font-bold block">Thumbnail (Foto de Capa)</label>
+                <div className="flex items-center gap-3">
+                  <label className="px-4 py-2 bg-gray-900 hover:bg-gray-800 text-amber-400 font-bold rounded-xl text-xs border border-amber-500/30 cursor-pointer flex items-center gap-2 shrink-0">
+                    <Upload size={14} />
+                    <span>Enviar Capa</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={e => handleFileUpload(e, 'video_thumb')}
+                      className="hidden"
+                    />
+                  </label>
+                  <input
+                    type="text"
+                    value={videoThumb}
+                    onChange={e => setVideoThumb(e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-800 rounded-xl p-2 text-xs text-gray-300"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddVideo(false)}
+                  className="px-4 py-2 bg-gray-900 text-gray-400 font-bold rounded-xl text-xs hover:text-white"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 bg-amber-500 text-black font-extrabold rounded-xl text-xs shadow-md"
+                >
+                  Salvar Mídia
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {videos.map(vid => (
+              <div key={vid.id} className="p-3 bg-gray-950 border border-gray-800 rounded-3xl space-y-2 relative group text-left">
+                <div className="aspect-[9/16] rounded-2xl overflow-hidden bg-black border border-gray-800 relative">
+                  <img src={vid.thumbnail} alt={vid.title} className="w-full h-full object-cover opacity-85" />
+                  <button
+                    onClick={() => handleDeleteVideo(vid.id)}
+                    className="absolute top-2 right-2 p-2 rounded-xl bg-black/80 text-red-400 hover:bg-red-500 hover:text-white transition-all shadow-md cursor-pointer"
+                    title="Remover"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <h4 className="text-xs font-bold text-white truncate">{vid.title}</h4>
+                <p className="text-[10px] text-amber-400 font-medium truncate">{vid.author || 'Bela Mulher'}</p>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Modal Video */}
-      {showAddVideo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <form onSubmit={handleCreateVideo} className="w-full max-w-md bg-gray-900 border border-gray-800 p-6 rounded-3xl space-y-3">
-            <h4 className="text-base font-bold text-white pb-2 border-b border-gray-800">Novo Vídeo Vertical 9:16</h4>
-            <div>
-              <label className="text-xs text-gray-300 block mb-1">Título do Vídeo</label>
-              <input
-                type="text"
-                required
-                value={videoTitle}
-                onChange={e => setVideoTitle(e.target.value)}
-                placeholder="Ex: Antes e Depois Mechas"
-                className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-300 block mb-1">Autor / Profissional</label>
-              <input
-                type="text"
-                value={videoAuthor}
-                onChange={e => setVideoAuthor(e.target.value)}
-                placeholder="Ex: Carla Silva"
-                className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-gray-300 block mb-1">Upload de Capa / Vídeo (Supabase Storage)</label>
-              <div className="flex gap-2 items-center mb-2">
-                <input
-                  type="file"
-                  accept="image/*,video/*"
-                  onChange={e => handleFileUpload(e, 'video_file')}
-                  className="hidden"
-                  id="video-file-input"
-                />
-                <label
-                  htmlFor="video-file-input"
-                  className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-amber-400 text-xs rounded-xl font-bold cursor-pointer flex items-center gap-1.5"
-                >
-                  <Upload size={14} />
-                  <span>{uploadingVideo ? 'Enviando...' : 'Upload Mídia'}</span>
-                </label>
+      {/* Category 3: Products */}
+      {activeCategory === 'produtos' && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+            Fotos de Produtos Cadastrados ({products.length})
+          </h3>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {products.map(prod => (
+              <div key={prod.id} className="p-3 bg-gray-950 border border-gray-800 rounded-3xl space-y-2 text-left">
+                <div className="aspect-square rounded-2xl overflow-hidden bg-black border border-gray-800">
+                  <img src={prod.image_url} alt={prod.name} className="w-full h-full object-cover" />
+                </div>
+                <h4 className="text-xs font-bold text-white truncate">{prod.name}</h4>
+                <span className="text-[10px] text-amber-400 font-bold block">
+                  R$ {Number(prod.sale_price).toFixed(2)}
+                </span>
               </div>
-              <input
-                type="text"
-                value={videoUrl}
-                onChange={e => setVideoUrl(e.target.value)}
-                placeholder="URL do Vídeo (mp4)"
-                className="w-full p-2.5 bg-black border border-gray-700 rounded-xl text-white text-xs"
-              />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button type="button" onClick={() => setShowAddVideo(false)} className="w-1/2 py-2 bg-gray-800 text-xs text-gray-300 rounded-xl font-bold">Cancelar</button>
-              <button type="submit" disabled={uploadingVideo} className="w-1/2 py-2 bg-amber-600 text-xs text-white rounded-xl font-bold">Salvar Vídeo</button>
-            </div>
-          </form>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Category 4: Cortes & Tranças */}
+      {activeCategory === 'cortes' && (
+        <div className="p-6 bg-gray-950 border border-amber-500/30 rounded-3xl text-center space-y-3">
+          <Scissors size={28} className="text-amber-400 mx-auto" />
+          <h3 className="text-base font-bold text-white">Catálogo Mídia de Cortes, Tranças e Penteados</h3>
+          <p className="text-xs text-gray-300 max-w-md mx-auto">
+            Todas as fotos de modelos de tranças, cortes e penteados vinculadas à Galeria e ao Chat Inteligente são gerenciadas automaticamente e sincronizadas com a nuvem Supabase.
+          </p>
+        </div>
+      )}
+
+      {/* Category 5: QR Code Pix */}
+      {activeCategory === 'pix' && (
+        <div className="p-6 bg-gray-950 border border-amber-500/30 rounded-3xl space-y-4 text-center">
+          <QrCode size={28} className="text-amber-400 mx-auto" />
+          <h3 className="text-base font-bold text-white">QR Code Pix do Salão</h3>
+          <p className="text-xs text-gray-300 max-w-md mx-auto">
+            A imagem do QR Code oficial do Pix pode ser substituída diretamente na seção de Pagamentos e Pix do Painel ADM.
+          </p>
+          <div className="w-36 h-36 mx-auto rounded-2xl bg-white p-2 border border-amber-500/40 overflow-hidden">
+            <img src={pixConfig?.qrcode_url || '/src/assets/images/service_showcase_1_1793799836251.jpg'} alt="Pix QR" className="w-full h-full object-contain" />
+          </div>
         </div>
       )}
     </div>

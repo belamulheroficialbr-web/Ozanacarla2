@@ -397,9 +397,15 @@ export const dataService = {
   async getOrders(userId?: string) {
     try {
       let query = supabase.from('orders').select('*').order('created_at', {ascending: false});
-      if (userId) query = query.or(`client_id.eq.${userId},client_email.eq.${userId}`);
+      if (userId) {
+        if (userId.includes('@')) {
+          query = query.eq('client_email', userId);
+        } else {
+          query = query.eq('client_id', userId);
+        }
+      }
       const {data, error} = await query;
-      if (!error && data && data.length > 0) return {data, error: null};
+      if (!error) return {data: data || [], error: null};
     } catch {}
 
     const stored = localStorage.getItem('BELA_ORDERS');
@@ -412,44 +418,102 @@ export const dataService = {
     return {data: list, error: null};
   },
 
+  async validateOrderStockAndPrices(items: any[]) {
+    const errors: string[] = [];
+    const updatedItems: any[] = [];
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return { valid: false, errors: ['A sacola está vazia.'], updatedItems: [] };
+    }
+
+    try {
+      const { data: dbProducts } = await this.getProducts();
+      const productMap = new Map((dbProducts || []).map((p: any) => [p.id, p]));
+
+      for (const item of items) {
+        const prod: any = productMap.get(item.id);
+        if (!prod) {
+          errors.push(`O produto "${item.name}" não está cadastrado no catálogo.`);
+          continue;
+        }
+
+        const availableQty = Number(prod.quantity || 0);
+        const requestedQty = Number(item.quantity || 1);
+        const currentPrice = Number(prod.sale_price || prod.price || item.price || 0);
+
+        if (availableQty < requestedQty) {
+          errors.push(
+            `Estoque insuficiente para "${item.name}" (disponível: ${availableQty} un., solicitado: ${requestedQty} un.).`
+          );
+        }
+
+        updatedItems.push({
+          ...item,
+          price: currentPrice,
+          quantity: requestedQty,
+          available_quantity: availableQty
+        });
+      }
+
+      return {
+        valid: errors.length === 0,
+        errors,
+        updatedItems
+      };
+    } catch (err: any) {
+      return {
+        valid: false,
+        errors: [`Erro ao validar estoque e preços: ${err.message || err}`],
+        updatedItems: items
+      };
+    }
+  },
+
   async addOrder(order: any) {
     const { data: { session } } = await supabase.auth.getSession();
     const userId = session?.user?.id;
+
+    // 1. Revalidação estrita de estoque e preços em tempo real
+    const valResult = await this.validateOrderStockAndPrices(order.items || []);
+    if (!valResult.valid) {
+      return { data: null, error: valResult.errors.join(' ') };
+    }
     
+    const orderId = order.id || `ord-${Math.floor(1000 + Math.random() * 9000)}`;
     const newOrd = {
       ...order,
-      client_id: userId, // Enforce authenticated user ID
-      id: `ord-${Math.floor(1000 + Math.random() * 9000)}`,
-      created_at: new Date().toISOString()
+      items: valResult.updatedItems,
+      client_id: userId || order.client_id || 'guest',
+      id: orderId,
+      payment_status: 'pendente', // REGRA DE SEGURANÇA: Todo novo pedido inicia obrigatoriamente como 'pendente'
+      payment_gateway_status: order.payment_gateway_status || 'awaiting_payment_confirmation',
+      created_at: order.created_at || new Date().toISOString()
     };
 
+    // 2. Registro no Supabase (Estoque PERMANECE intacto até confirmação legítima de pagamento)
     try {
       const {data, error} = await supabase.from('orders').insert([newOrd]).select('*');
       if (!error && data) {
-        if (newOrd.payment_status === 'pago') {
-          await this.processOrderFinancials(newOrd);
-        }
+        // REGRA DE SEGURANÇA: Baixa de estoque NÃO ocorre na criação pendente.
+        // O débito é acionado idempotentemente quando payment_status transita para 'pago'.
 
-        // Automatic Stock Deduction (prevents duplicates via order.id)
-        await this.processOrderStockDeduction(newOrd);
-
-        // Trigger Notification
+        // Notificar Cliente
         await this.addNotification({
-          user_id: userId,
+          user_id: userId || 'guest',
           title: 'Pedido Recebido!',
-          message: `Seu pedido #${newOrd.id} foi recebido e está em processamento.`,
+          message: `Seu pedido #${newOrd.id} foi registrado com sucesso e aguarda confirmação de pagamento Pix.`,
           type: 'order',
           metadata: { order_id: newOrd.id }
         });
 
-        // Notify Admins
+        // Notificar Administradoras
         const {data: admins} = await this.getProfiles('admin');
         if (admins) {
           for (const admin of admins) {
             await this.addNotification({
               user_id: admin.id,
-              title: 'Novo Pedido na Sacola',
-              message: `A cliente ${newOrd.client_name} realizou o pedido #${newOrd.id}.`,
+              title: 'Novo Pedido Pendente (Pix)',
+              message: `A cliente ${newOrd.client_name} realizou o pedido #${newOrd.id} (R$ ${Number(newOrd.total_amount).toFixed(2)}).`,
               type: 'order',
               metadata: { order_id: newOrd.id }
             });
@@ -460,23 +524,17 @@ export const dataService = {
       }
     } catch {}
 
+    // Contingência Local Storage (para execuções offline ou pré-conexão Supabase)
     const stored = localStorage.getItem('BELA_ORDERS');
     const list = stored ? JSON.parse(stored) : INITIAL_ORDERS;
     const updated = [newOrd, ...list];
     localStorage.setItem('BELA_ORDERS', JSON.stringify(updated));
 
-    if (newOrd.payment_status === 'pago') {
-      await this.processOrderFinancials(newOrd);
-    }
-
-    // Automatic Stock Deduction (fallback)
-    await this.processOrderStockDeduction(newOrd);
-
-    // Trigger Notification (Local Fallback)
+    // Notificação Local
     this.addNotification({
       user_id: userId || 'guest',
       title: 'Pedido Recebido!',
-      message: `Seu pedido #${newOrd.id} foi recebido e está em processamento.`,
+      message: `Seu pedido #${newOrd.id} foi registrado e aguarda validação do pagamento.`,
       type: 'order',
       metadata: { order_id: newOrd.id }
     });
@@ -485,22 +543,67 @@ export const dataService = {
   },
 
   async updateOrderStatus(id: string, statusUpdates: {payment_status?: string; delivery_status?: string}, requesterRole?: string) {
-    // Only allow payment_status/delivery_status updates. 
-    // Stripping total_amount or other sensitive fields if they were passed.
+    // 3. Prevent unauthorized users from confirming payments (verified against authoritative profiles table)
+    if (statusUpdates.payment_status === 'pago') {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+      let userRole = requesterRole;
+      if (userId) {
+        try {
+          const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
+          if (profile?.role) userRole = profile.role;
+        } catch {}
+      }
+      if (!userRole) userRole = session?.user?.user_metadata?.role;
+      if (userRole !== 'admin') {
+        return { data: null, error: 'Acesso Negado: Apenas administradoras autorizadas podem confirmar pagamentos.' };
+      }
+    }
+
     const safeUpdates: any = {};
     if (statusUpdates.payment_status) safeUpdates.payment_status = statusUpdates.payment_status;
     if (statusUpdates.delivery_status) safeUpdates.delivery_status = statusUpdates.delivery_status;
 
     try {
+      // Fetch current order state to verify cancel status and idempotency
+      const { data: currentOrderData } = await supabase.from('orders').select('*').eq('id', id).single();
+      if (currentOrderData) {
+        // 4. Prevent cancelled order from being confirmed later
+        if (currentOrderData.payment_status === 'cancelado' || currentOrderData.delivery_status === 'cancelado') {
+          if (statusUpdates.payment_status === 'pago') {
+            return { data: null, error: 'Erro de Segurança: Pedidos cancelados não podem ser confirmados ou pagos.' };
+          }
+        }
+
+        // 1. Real Idempotency check: If already paid and trying to pay again, return existing data
+        if (currentOrderData.payment_status === 'pago' && statusUpdates.payment_status === 'pago') {
+          return { data: [currentOrderData], error: null };
+        }
+      }
+
+      // 5. Record who confirmed and when
+      if (statusUpdates.payment_status === 'pago') {
+        const { data: { session } } = await supabase.auth.getSession();
+        safeUpdates.confirmed_at = new Date().toISOString();
+        safeUpdates.confirmed_by = session?.user?.email || session?.user?.id || requesterRole || 'admin';
+      }
+
       const {data, error} = await supabase.from('orders').update(safeUpdates).eq('id', id).select('*');
       if (!error && data) {
-        // Notify Client about status change
         const order = data[0];
         
-        // Record transaction if paid
+        // Record transaction & deduct stock if paid (idempotently guarded)
         if (safeUpdates.payment_status === 'pago') {
           await this.processOrderFinancials(order);
           await this.processOrderStockDeduction(order);
+          await this.grantLoyaltyPointsFromOrder(order);
+        }
+
+        // Automatic Stock, Financial and Loyalty Reversion if cancelled (idempotently guarded)
+        if (safeUpdates.payment_status === 'cancelado' || safeUpdates.delivery_status === 'cancelado') {
+          await this.revertStockDeduction(order);
+          await this.revertOrderFinancials(order);
+          await this.revertLoyaltyPointsFromOrder(order);
         }
 
         await this.addNotification({
@@ -512,11 +615,21 @@ export const dataService = {
         });
         return {data, error: null};
       }
-    } catch {}
+    } catch (err) {
+      console.error('Erro em updateOrderStatus:', err);
+    }
 
     const stored = localStorage.getItem('BELA_ORDERS');
     const list = stored ? JSON.parse(stored) : INITIAL_ORDERS;
-    const updated = list.map((o: any) => o.id === id ? {...o, ...safeUpdates} : o);
+    const target = list.find((o: any) => o.id === id);
+    if (target && (target.payment_status === 'cancelado' || target.delivery_status === 'cancelado') && statusUpdates.payment_status === 'pago') {
+      return { data: null, error: 'Pedidos cancelados não podem ser pagos.' };
+    }
+    const updated = list.map((o: any) => o.id === id ? {
+      ...o, 
+      ...safeUpdates,
+      ...(statusUpdates.payment_status === 'pago' ? { confirmed_at: new Date().toISOString(), confirmed_by: requesterRole || 'admin' } : {})
+    } : o);
     localStorage.setItem('BELA_ORDERS', JSON.stringify(updated));
     return {data: updated, error: null};
   },
@@ -747,12 +860,24 @@ export const dataService = {
       ...msg,
       sender_id: userId || msg.sender_id, // Enforce session ID if present
       id: `msg-${Date.now()}`,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      is_read: false
     };
 
     try {
       const {data, error} = await supabase.from('messages').insert([newMsg]).select('*');
-      if (!error && data) return {data, error: null};
+      if (!error && data) {
+        if (newMsg.receiver_id) {
+          await this.addNotification({
+            user_id: newMsg.receiver_id,
+            title: `Nova Mensagem (${newMsg.sender_name || 'Bela Mulher'})`,
+            message: newMsg.content || 'Mensagem de áudio no chat',
+            type: 'chat',
+            metadata: { sender_id: newMsg.sender_id }
+          });
+        }
+        return {data, error: null};
+      }
     } catch {}
 
     const key = `BELA_CHAT_MSGS`;
@@ -760,7 +885,40 @@ export const dataService = {
     const list = stored ? JSON.parse(stored) : [];
     const updated = [...list, newMsg];
     localStorage.setItem(key, JSON.stringify(updated));
+
+    if (newMsg.receiver_id) {
+      await this.addNotification({
+        user_id: newMsg.receiver_id,
+        title: `Nova Mensagem (${newMsg.sender_name || 'Bela Mulher'})`,
+        message: newMsg.content || 'Mensagem de áudio no chat',
+        type: 'chat',
+        metadata: { sender_id: newMsg.sender_id }
+      });
+    }
+
     return {data: [newMsg], error: null};
+  },
+
+  async markChatMessagesAsRead(userId: string, senderId: string) {
+    try {
+      await supabase
+        .from('messages')
+        .update({ is_read: true })
+        .eq('receiver_id', userId)
+        .eq('sender_id', senderId);
+    } catch {}
+
+    try {
+      await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', userId)
+        .eq('type', 'chat');
+    } catch {}
+
+    const key = `BELA_CHAT_READ_${userId}_${senderId}`;
+    localStorage.setItem(key, new Date().toISOString());
+    return { success: true };
   },
 
   // Services
@@ -851,6 +1009,17 @@ export const dataService = {
   },
 
   async createAppointment(appointment: any) {
+    // Check schedule block conflict
+    const appDate = (appointment.date || appointment.start_time || '').split('T')[0];
+    const appTime = appointment.time || (appointment.start_time ? appointment.start_time.split('T')[1]?.slice(0, 5) : undefined);
+    
+    if (appointment.professional_id) {
+      const isAvailable = await this.isProfessionalAvailable(appointment.professional_id, appDate, appTime);
+      if (!isAvailable) {
+        return { data: null, error: 'O profissional possui um bloqueio de agenda (folga, almoço ou férias) neste horário.' };
+      }
+    }
+
     const newApp = {...appointment, id: `app-${Date.now()}`};
     try {
       const res = await supabase.from('appointments').insert([appointment]).select('*, services(name), professional:profiles!professional_id(name)').single();
@@ -930,6 +1099,12 @@ export const dataService = {
           await this.processConclusionFinancials(res.data);
         }
 
+        // FINANCE REVERSION
+        if (status === 'cancelled') {
+          await this.revertStockDeduction(res.data);
+          await this.revertAppointmentFinancials(res.data);
+        }
+
         return res;
       }
     } catch {}
@@ -966,14 +1141,18 @@ export const dataService = {
   // Transactions / Cash Flow
   async getTransactions() {
     try {
-      const {data, error} = await supabase.from('transactions').select('*').order('date', {ascending: false});
-      if (!error && data && data.length > 0) return {data, error: null};
-    } catch {}
-
-    const stored = localStorage.getItem('BELA_TRANSACTIONS');
-    const parsed = stored ? JSON.parse(stored) : INITIAL_TRANSACTIONS;
-    if (!stored) localStorage.setItem('BELA_TRANSACTIONS', JSON.stringify(INITIAL_TRANSACTIONS));
-    return {data: parsed, error: null};
+      const { data, error } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+      if (!error) {
+        // Supabase connected successfully: return real data (even if empty []), distinguishing absence of records from connection failure
+        return { data: data || [], error: null };
+      }
+      // Connection or query error
+      console.error('Erro ao carregar transações do Supabase:', error);
+      return { data: [], error: error.message || 'Falha de conexão ao carregar transações do servidor.' };
+    } catch (err: any) {
+      console.error('Exceção ao carregar transações:', err);
+      return { data: [], error: err?.message || 'Erro de conexão ao servidor.' };
+    }
   },
 
   async addTransaction(transaction: any) {
@@ -1294,10 +1473,139 @@ export const dataService = {
     }
   },
 
+  async grantLoyaltyPointsFromOrder(order: any) {
+    try {
+      if (!order || !order.client_id || order.client_id === 'guest') return;
+      
+      // 1. Check if already granted
+      const {data: existing} = await supabase
+        .from('loyalty_transactions')
+        .select('id')
+        .eq('related_id', order.id)
+        .eq('type', 'earn')
+        .maybeSingle();
+
+      if (existing) return; // Prevent double points
+
+      // 2. Get config
+      const {data: config} = await this.getLoyaltyConfig();
+      const ratio = Number(config?.points_per_real || 1.0);
+      
+      const totalAmount = Number(order.total_amount || 0);
+      const points = Math.floor(totalAmount * ratio);
+
+      if (points <= 0) return;
+
+      // 3. Record transaction
+      await this.addLoyaltyTransaction({
+        user_id: order.client_id,
+        amount: points,
+        type: 'earn',
+        description: `Pontos ganhos: Pedido #${order.id.slice(0, 8)}`,
+        related_id: order.id
+      });
+
+      // 4. Notify client
+      await this.addNotification({
+        user_id: order.client_id,
+        title: 'Você ganhou pontos!',
+        message: `Parabéns! Você recebeu ${points} pontos pelo seu pedido.`,
+        type: 'system'
+      });
+    } catch (err) {
+      console.error('Erro ao conceder pontos de pedido:', err);
+    }
+  },
+
+  async revertLoyaltyPointsFromOrder(order: any) {
+    try {
+      if (!order || !order.client_id || order.client_id === 'guest') return;
+
+      // 1. Localizar o ganho de pontos original
+      const { data: originalEarn } = await supabase
+        .from('loyalty_transactions')
+        .select('*')
+        .eq('related_id', order.id)
+        .eq('type', 'earn')
+        .maybeSingle();
+
+      if (!originalEarn) return; // Se nunca ganhou pontos, não há o que estornar
+
+      // 2. Verificar se já existe estorno registrado (Idempotência contra duplo estorno)
+      const { data: existingReversal } = await supabase
+        .from('loyalty_transactions')
+        .select('id')
+        .eq('related_id', order.id)
+        .eq('type', 'reversal')
+        .maybeSingle();
+
+      if (existingReversal) return; // Impede duplicidade de estorno de pontos
+
+      // 3. Registrar transação de estorno de pontos
+      const pointsToDeduct = Math.abs(Number(originalEarn.amount || 0));
+      if (pointsToDeduct <= 0) return;
+
+      await this.addLoyaltyTransaction({
+        user_id: order.client_id,
+        amount: -pointsToDeduct,
+        type: 'reversal',
+        description: `Estorno de pontos: Pedido #${order.id.slice(0, 8)} cancelado`,
+        related_id: order.id
+      });
+    } catch (err) {
+      console.error('Erro ao estornar pontos de pedido cancelado:', err);
+    }
+  },
+
+  async syncLoyaltyPointsFromRealHistory(userId: string) {
+    try {
+      if (!userId || userId === 'guest') return;
+      
+      const [appsRes, ordsRes, txsRes] = await Promise.all([
+        this.getAppointments(userId, 'client'),
+        this.getOrders(userId),
+        this.getLoyaltyTransactions(userId)
+      ]);
+
+      const apps = appsRes.data || [];
+      const ords = ordsRes.data || [];
+      const txs = txsRes.data || [];
+
+      const existingRelatedIds = new Set(txs.map((t: any) => t.related_id).filter(Boolean));
+
+      // Sync concluded appointments
+      const concludedApps = apps.filter((a: any) => (a.status === 'concluded' || a.status === 'concluido') && !existingRelatedIds.has(a.id));
+      for (const app of concludedApps) {
+        await this.grantLoyaltyPointsFromAppointment(app);
+      }
+
+      // Sync paid orders
+      const paidOrders = ords.filter((o: any) => o.payment_status === 'pago' && !existingRelatedIds.has(o.id));
+      for (const ord of paidOrders) {
+        await this.grantLoyaltyPointsFromOrder(ord);
+      }
+    } catch (err) {
+      console.error('Erro ao sincronizar histórico de pontos:', err);
+    }
+  },
+
   async addLoyaltyTransaction(tx: any) {
     try {
       const {data, error} = await supabase.from('loyalty_transactions').insert([tx]).select('*');
-      if (!error && data) return {data, error: null};
+      if (!error && data) {
+        // Also update profiles loyalty_points balance
+        try {
+          const { data: prof } = await this.getProfile(tx.user_id);
+          if (prof) {
+            const currentPoints = Number(prof.loyalty_points || 0);
+            const newBalance = Math.max(0, currentPoints + Number(tx.amount || 0));
+            await supabase.from('profiles').update({ loyalty_points: newBalance }).eq('id', tx.user_id);
+          }
+        } catch (e) {
+          console.error('Erro ao atualizar saldo no perfil:', e);
+        }
+        return {data, error: null};
+      }
     } catch (err) {}
     return {error: 'Falha ao registrar pontos'};
   },
@@ -1543,79 +1851,180 @@ export const dataService = {
   },
 
   async processOrderStockDeduction(order: any) {
+    const results: { success: boolean; processed: string[]; skipped: string[]; failed: { id: string; name: string; error: string }[] } = {
+      success: true,
+      processed: [],
+      skipped: [],
+      failed: []
+    };
+
     try {
-      if (!order || !order.items || !Array.isArray(order.items) || order.items.length === 0) return;
+      if (!order || !order.items) return { ...results, success: false };
 
-      // Prevent duplicate deduction: check if movement already recorded for this order
-      const {data: existingMovs} = await supabase
-        .from('stock_movements')
-        .select('id')
-        .eq('related_id', order.id);
-
-      if (existingMovs && existingMovs.length > 0) {
-        return; // Already processed in Supabase
-      }
-
-      const stored = localStorage.getItem('BELA_STOCK_MOVEMENTS');
-      if (stored) {
-        const list = JSON.parse(stored);
-        if (list.some((m: any) => m.related_id === order.id)) {
-          return; // Already processed in local storage
+      // 1. Tentar execução atômica via RPC transacional do PostgreSQL se disponível
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('process_order_stock_atomic', {
+          p_order_id: order.id,
+          p_items: order.items
+        });
+        if (!rpcError && rpcData) {
+          const res = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+          if (res && res.success) {
+            return res;
+          }
         }
-      }
-
-      // Fetch products
-      const {data: prods} = await this.getProducts();
-      const currentProducts = prods || [];
+      } catch {}
 
       for (const item of order.items) {
-        const prod = currentProducts.find((p: any) => p.id === item.id || p.name?.toLowerCase() === item.name?.toLowerCase());
-        const qtyToDeduct = Number(item.quantity) || 1;
-        const currentQty = prod ? Number(prod.quantity) : 0;
-        const newQty = Math.max(0, currentQty - qtyToDeduct);
+        try {
+          // 1. Verificar se já processado (Idempotência estrita por produto e pedido)
+          const { data: existingMovs } = await supabase
+            .from('stock_movements')
+            .select('id')
+            .eq('related_id', order.id)
+            .eq('product_id', item.id)
+            .eq('type', 'saida')
+            .maybeSingle();
 
-        // Record stock movement (type: 'saida')
-        await this.recordStockMovement({
-          product_id: prod?.id || item.id,
-          product_name: prod?.name || item.name,
-          type: 'saida',
-          quantity: qtyToDeduct,
-          reason: `Venda Pedido #${order.id} - ${order.client_name || 'Cliente'}`,
-          related_id: order.id,
-          unit_cost: prod?.cost_price || 0,
-          total_cost: (prod?.cost_price || 0) * qtyToDeduct,
-          date: new Date().toISOString()
-        });
+          if (existingMovs) {
+            results.skipped.push(item.id);
+            continue; // Já baixado anteriormente, preserva histórico e não debita novamente
+          }
 
-        // Update product quantity
-        if (prod?.id) {
-          await this.updateProduct(prod.id, {
-            quantity: newQty,
-            updated_at: new Date().toISOString()
+          // 2. Revalidar produto e estoque disponível antes da baixa
+          const { data: prod } = await supabase
+            .from('products')
+            .select('id, quantity')
+            .eq('id', item.id)
+            .single();
+
+          if (!prod) {
+            throw new Error(`Produto não encontrado no cadastro`);
+          }
+
+          if (prod.quantity < item.quantity) {
+            throw new Error(`Estoque insuficiente (disponível: ${prod.quantity}, solicitado: ${item.quantity})`);
+          }
+
+          // 3. Update atômico com Trava Otimista (impede saldo negativo)
+          const newQty = prod.quantity - item.quantity;
+          const { error: updateErr } = await supabase
+            .from('products')
+            .update({ quantity: newQty })
+            .eq('id', item.id)
+            .eq('quantity', prod.quantity);
+
+          if (updateErr) {
+            throw new Error('Falha de concorrência ao atualizar estoque. Tente novamente.');
+          }
+
+          // 4. Registro de movimentação detalhado
+          await this.recordStockMovement({
+            product_id: item.id,
+            product_name: item.name,
+            type: 'saida',
+            quantity: item.quantity,
+            reason: `Venda Pedido #${order.id}`,
+            related_id: order.id
           });
 
-          // Check if low or depleted stock and notify admins
-          const minQty = Number(prod.min_quantity) || 5;
-          if (newQty <= minQty) {
-            const {data: admins} = await this.getProfiles('admin');
-            if (admins) {
-              for (const admin of admins) {
-                await this.addNotification({
-                  user_id: admin.id,
-                  title: newQty === 0 ? 'Produto Esgotado!' : 'Alerta de Estoque Baixo',
-                  message: newQty === 0
-                    ? `O produto "${prod.name}" esgotou no estoque após o pedido #${order.id}.`
-                    : `O produto "${prod.name}" atingiu o nível crítico de alerta (${newQty} un. restantes).`,
-                  type: 'system',
-                  metadata: { product_id: prod.id, current_quantity: newQty }
-                });
-              }
-            }
-          }
+          results.processed.push(item.id);
+        } catch (itemErr: any) {
+          results.success = false;
+          results.failed.push({
+            id: item.id,
+            name: item.name || 'Produto',
+            error: itemErr.message || 'Erro ao processar item'
+          });
+          console.error(`Erro na baixa de estoque do item ${item.name || item.id} (Pedido #${order.id}):`, itemErr);
         }
       }
     } catch (err) {
-      console.error('Erro ao processar baixa de estoque do pedido:', err);
+      results.success = false;
+      console.error('Erro geral no processador de estoque:', err);
+    }
+
+    return results;
+  },
+
+  async getOrderStockStatus(order: any) {
+    if (!order || !order.items || !Array.isArray(order.items)) {
+      return { isFullyProcessed: true, totalItems: 0, processedCount: 0, pendingItems: [] };
+    }
+
+    try {
+      const { data: movs } = await supabase
+        .from('stock_movements')
+        .select('product_id, type')
+        .eq('related_id', order.id);
+
+      const saidaSet = new Set((movs || []).filter(m => m.type === 'saida').map(m => m.product_id));
+      const estornoSet = new Set((movs || []).filter(m => m.type === 'estorno').map(m => m.product_id));
+
+      const pendingItems = order.items.filter((item: any) => !saidaSet.has(item.id));
+      const refundedItems = order.items.filter((item: any) => saidaSet.has(item.id) && estornoSet.has(item.id));
+      const deductedItems = order.items.filter((item: any) => saidaSet.has(item.id) && !estornoSet.has(item.id));
+
+      return {
+        isFullyProcessed: pendingItems.length === 0,
+        totalItems: order.items.length,
+        processedCount: saidaSet.size,
+        pendingItems,
+        refundedItems,
+        deductedItems
+      };
+    } catch (err) {
+      return { isFullyProcessed: true, totalItems: order.items.length, processedCount: 0, pendingItems: [] };
+    }
+  },
+
+  async revertStockDeduction(order: any) {
+    try {
+      if (!order || !order.items) return;
+
+      for (const item of order.items) {
+        // 1. Verifica se existe movimentação para estornar
+        const { data: movs } = await supabase
+          .from('stock_movements')
+          .select('id, type')
+          .eq('related_id', order.id)
+          .eq('product_id', item.id);
+        
+        const hasSaida = movs?.some(m => m.type === 'saida');
+        const hasEstorno = movs?.some(m => m.type === 'estorno');
+        
+        if (!hasSaida || hasEstorno) continue;
+
+        // 2. Fetch produto atual
+        const { data: prod } = await supabase
+          .from('products')
+          .select('id, quantity')
+          .eq('id', item.id)
+          .single();
+
+        if (!prod) continue;
+
+        // 3. Incrementa estoque com trava otimista
+        const { error: updateErr } = await supabase
+          .from('products')
+          .update({ quantity: prod.quantity + item.quantity })
+          .eq('id', item.id)
+          .eq('quantity', prod.quantity);
+
+        if (updateErr) throw new Error('Falha de concorrência no estorno: tente novamente.');
+
+        // 4. Registra estorno
+        await this.recordStockMovement({
+          product_id: item.id,
+          product_name: item.name,
+          type: 'estorno',
+          quantity: item.quantity,
+          reason: `Cancelamento Pedido #${order.id}`,
+          related_id: order.id
+        });
+      }
+    } catch (err) {
+      console.error('Erro no estorno de estoque:', err);
     }
   },
 
@@ -1627,17 +2036,113 @@ export const dataService = {
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
       
+      const revenueCats = ['Serviços', 'Venda de Produtos'];
+      const reversalCats = ['Estorno de Venda', 'Estorno de Atendimento'];
+      
+      const total_gross_revenue = txs.filter((t: any) => t.type === 'entrada' && revenueCats.includes(t.category)).reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+      const total_reversals = txs.filter((t: any) => t.type === 'saida' && reversalCats.includes(t.category)).reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+      const commission_reversals = txs.filter((t: any) => t.type === 'entrada' && t.category === 'Estorno de Comissão').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0);
+      
       const metrics = {
         total_revenue: txs.filter((t: any) => t.type === 'entrada').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
         total_expenses: txs.filter((t: any) => t.type === 'saida').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
         pending_receivables: txs.filter((t: any) => t.type === 'entrada' && t.status === 'pendente').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
         pending_payables: txs.filter((t: any) => t.type === 'saida' && t.status === 'pendente').reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
-        daily_revenue: txs.filter((t: any) => t.type === 'entrada' && t.date.startsWith(todayStr)).reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0)
+        daily_revenue: txs.filter((t: any) => t.type === 'entrada' && t.date.startsWith(todayStr)).reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0),
+        
+        total_gross_revenue,
+        total_reversals,
+        net_revenue: total_gross_revenue - total_reversals,
+        commission_reversals,
+        net_profit: (total_gross_revenue - total_reversals + commission_reversals) - (txs.filter((t: any) => t.type === 'saida' && !reversalCats.includes(t.category)).reduce((sum: number, t: any) => sum + Number(t.amount || 0), 0))
       };
 
       return {data: metrics, error: null};
     } catch (err) {
       return {error: 'Erro ao processar métricas'};
+    }
+  },
+
+  async revertOrderFinancials(order: any) {
+    const { data: originalTx } = await supabase
+      .from('transactions')
+      .select('amount')
+      .eq('related_id', order.id)
+      .eq('related_type', 'order')
+      .maybeSingle();
+
+    if (!originalTx) return;
+
+    const { data: existing } = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('related_id', order.id)
+      .eq('related_type', 'order_reversal')
+      .maybeSingle();
+    
+    if (existing) return;
+
+    await this.addTransaction({
+      description: `Estorno Pedido #${order.id}`,
+      category: 'Estorno de Venda',
+      type: 'saida',
+      amount: originalTx.amount,
+      date: new Date().toISOString(),
+      status: 'pago',
+      related_id: order.id,
+      related_type: 'order_reversal'
+    });
+  },
+
+  async revertAppointmentFinancials(appointment: any) {
+    const { data: originalTx } = await supabase
+      .from('transactions')
+      .select('amount')
+      .eq('related_id', appointment.id)
+      .eq('related_type', 'appointment')
+      .maybeSingle();
+
+    if (!originalTx) return;
+
+    const { data: existing } = await supabase
+      .from('transactions')
+      .select('id')
+      .eq('related_id', appointment.id)
+      .eq('related_type', 'appointment_reversal')
+      .maybeSingle();
+    
+    if (existing) return;
+
+    await this.addTransaction({
+      description: `Estorno Atendimento #${appointment.id}`,
+      category: 'Estorno de Atendimento',
+      type: 'saida',
+      amount: originalTx.amount,
+      date: new Date().toISOString(),
+      status: 'pago',
+      related_id: appointment.id,
+      related_type: 'appointment_reversal'
+    });
+
+    const { data: comm } = await supabase
+      .from('commissions')
+      .select('*')
+      .eq('appointment_id', appointment.id)
+      .eq('status', 'paid')
+      .maybeSingle();
+
+    if (comm) {
+      await this.addTransaction({
+        description: `Reversão Comissão Atend. #${appointment.id}`,
+        category: 'Estorno de Comissão',
+        type: 'entrada',
+        amount: Math.abs(comm.commission_amount),
+        date: new Date().toISOString(),
+        status: 'pago',
+        related_id: appointment.id,
+        related_type: 'commission_reversal'
+      });
+      await supabase.from('commissions').update({ status: 'reversed' }).eq('id', comm.id);
     }
   },
 
@@ -1680,6 +2185,113 @@ export const dataService = {
     return {error: 'Falha ao pagar comissão'};
   },
 
+  // 10. Escala e Bloqueios de Profissionais
+  async getScheduleBlocks(professionalId?: string) {
+    try {
+      const stored = localStorage.getItem('BELA_SCHEDULE_BLOCKS');
+      const blocks: any[] = stored ? JSON.parse(stored) : [];
+      if (professionalId) {
+        return { data: blocks.filter(b => b.professional_id === professionalId || b.professional_id === 'all'), error: null };
+      }
+      return { data: blocks, error: null };
+    } catch {
+      return { data: [], error: null };
+    }
+  },
+
+  async addScheduleBlock(block: any) {
+    try {
+      const stored = localStorage.getItem('BELA_SCHEDULE_BLOCKS');
+      const blocks: any[] = stored ? JSON.parse(stored) : [];
+      const newBlock = {
+        ...block,
+        id: `block-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        created_at: new Date().toISOString()
+      };
+      blocks.push(newBlock);
+      localStorage.setItem('BELA_SCHEDULE_BLOCKS', JSON.stringify(blocks));
+      return { data: newBlock, error: null };
+    } catch (err: any) {
+      return { error: err.message || 'Erro ao adicionar bloqueio' };
+    }
+  },
+
+  async deleteScheduleBlock(id: string) {
+    try {
+      const stored = localStorage.getItem('BELA_SCHEDULE_BLOCKS');
+      const blocks: any[] = stored ? JSON.parse(stored) : [];
+      const filtered = blocks.filter(b => b.id !== id);
+      localStorage.setItem('BELA_SCHEDULE_BLOCKS', JSON.stringify(filtered));
+      return { error: null };
+    } catch (err: any) {
+      return { error: 'Erro ao remover bloqueio' };
+    }
+  },
+
+  async isProfessionalAvailable(professionalId: string, dateStr: string, timeStr?: string) {
+    try {
+      const { data: blocks } = await this.getScheduleBlocks(professionalId);
+      if (!blocks || blocks.length === 0) return true;
+
+      const targetDate = dateStr.split('T')[0];
+
+      for (const block of blocks) {
+        const bDate = (block.date || '').split('T')[0];
+        if (bDate === targetDate) {
+          // Full day block (férias, folga)
+          if (block.type === 'férias' || block.type === 'folga' || !block.start_time) {
+            return false;
+          }
+          // Time range block (almoço, bloqueio)
+          if (timeStr && block.start_time && block.end_time) {
+            if (timeStr >= block.start_time && timeStr <= block.end_time) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  },
+
+  // Pix Config Management
+  async getPixConfig() {
+    try {
+      const stored = localStorage.getItem('BELA_PIX_CONFIG');
+      if (stored) return { data: JSON.parse(stored), error: null };
+      const { data } = await supabase.from('salon_config').select('value').eq('key', 'pix_config').maybeSingle();
+      if (data?.value) {
+        localStorage.setItem('BELA_PIX_CONFIG', JSON.stringify(data.value));
+        return { data: data.value, error: null };
+      }
+    } catch {}
+    
+    // Default fallback config
+    const defaultConfig = {
+      active: true,
+      key_type: 'CNPJ',
+      pix_key: '12.345.678/0001-90',
+      receiver_name: 'Sra Bela Mulher Salão & Estética',
+      city: 'SÃO PAULO',
+      qrcode_url: '/src/assets/images/service_showcase_1_1793799836251.jpg',
+      merchant_category_code: '0000'
+    };
+    return { data: defaultConfig, error: null };
+  },
+
+  async savePixConfig(config: any) {
+    try {
+      localStorage.setItem('BELA_PIX_CONFIG', JSON.stringify(config));
+      await supabase.from('salon_config').upsert({ key: 'pix_config', value: config, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      return { success: true, data: config, error: null };
+    } catch (err: any) {
+      localStorage.setItem('BELA_PIX_CONFIG', JSON.stringify(config));
+      return { success: true, data: config, error: null };
+    }
+  },
+
   // Connection Check
   async testConnection() {
     try {
@@ -1703,3 +2315,413 @@ export const dataService = {
     }
   }
 };
+
+export function generatePixBrCode(params: {
+  key: string;
+  name: string;
+  city: string;
+  amount?: number;
+  txid?: string;
+}): string {
+  const cleanKey = (params.key || '').trim();
+  const cleanName = (params.name || 'BELA MULHER').normalize('NFD').replace(/[\u0300-\u036f]/g, '').slice(0, 25).toUpperCase();
+  const cleanCity = (params.city || 'SAO PAULO').normalize('NFD').replace(/[\u0300-\u036f]/g, '').slice(0, 15).toUpperCase();
+  const txid = ((params.txid || '***').replace(/[^a-zA-Z0-9]/g, '') || 'BELA').slice(0, 25);
+
+  const gui = '0014br.gov.bcb.pix';
+  const keyField = `01${String(cleanKey.length).padStart(2, '0')}${cleanKey}`;
+  const merchantAccount = `26${String(gui.length + keyField.length).padStart(2, '0')}${gui}${keyField}`;
+  const mcc = '52040000';
+  const currency = '5303986';
+  
+  let amountStr = '';
+  if (params.amount && params.amount > 0) {
+    const formattedAmt = params.amount.toFixed(2);
+    amountStr = `54${String(formattedAmt.length).padStart(2, '0')}${formattedAmt}`;
+  }
+  
+  const country = '5802BR';
+  const nameField = `59${String(cleanName.length).padStart(2, '0')}${cleanName}`;
+  const cityField = `60${String(cleanCity.length).padStart(2, '0')}${cleanCity}`;
+  
+  const txidField = `05${String(txid.length).padStart(2, '0')}${txid}`;
+  const addDataField = `62${String(txidField.length).padStart(2, '0')}${txidField}`;
+
+  const payloadNoCrc = `000201${merchantAccount}${mcc}${currency}${amountStr}${country}${nameField}${cityField}${addDataField}6304`;
+  
+  let crc = 0xFFFF;
+  for (let i = 0; i < payloadNoCrc.length; i++) {
+    crc ^= payloadNoCrc.charCodeAt(i) << 8;
+    for (let j = 0; j < 8; j++) {
+      if ((crc & 0x8000) !== 0) {
+        crc = ((crc << 1) ^ 0x1021) & 0xFFFF;
+      } else {
+        crc = (crc << 1) & 0xFFFF;
+      }
+    }
+  }
+  const crcHex = crc.toString(16).toUpperCase().padStart(4, '0');
+  return payloadNoCrc + crcHex;
+}
+
+export function validatePixBrCode(payload: string, expectedKey?: string): {
+  isValid: boolean;
+  message: string;
+  extractedKey?: string;
+} {
+  if (!payload || typeof payload !== 'string') {
+    return { isValid: false, message: 'Payload do QR Code Pix em branco ou ausente.' };
+  }
+  const trimmed = payload.trim();
+  if (!trimmed.startsWith('000201')) {
+    return { isValid: false, message: 'Formato inválido: QR Code não segue o padrão BR Code/EMV (deve iniciar com 000201).' };
+  }
+  if (!trimmed.includes('br.gov.bcb.pix')) {
+    return { isValid: false, message: 'Estrutura Pix inválida: domínio br.gov.bcb.pix não localizado no payload.' };
+  }
+  if (!trimmed.includes('6304')) {
+    return { isValid: false, message: 'Incompleto: campo CRC16 (6304) ausente no payload.' };
+  }
+
+  let extractedKey = '';
+  const pixIdx = trimmed.indexOf('br.gov.bcb.pix');
+  if (pixIdx !== -1) {
+    const after = trimmed.slice(pixIdx + 'br.gov.bcb.pix'.length);
+    if (after.startsWith('01')) {
+      const len = parseInt(after.slice(2, 4), 10);
+      if (!isNaN(len)) {
+        extractedKey = after.slice(4, 4 + len);
+      }
+    }
+  }
+
+  if (expectedKey && extractedKey) {
+    const cleanExpected = expectedKey.replace(/[^a-zA-Z0-9@.-]/g, '').toLowerCase();
+    const cleanExtracted = extractedKey.replace(/[^a-zA-Z0-9@.-]/g, '').toLowerCase();
+    if (cleanExpected && cleanExtracted && !cleanExtracted.includes(cleanExpected) && !cleanExpected.includes(cleanExtracted)) {
+      return {
+        isValid: false,
+        message: `Atenção: A chave no QR Code ("${extractedKey}") diverge da chave cadastrada ("${expectedKey}").`,
+        extractedKey
+      };
+    }
+  }
+
+  return {
+    isValid: true,
+    message: `QR Code BR Code/EMV válido e compatível! Chave identificada: ${extractedKey || 'Padrão BACEN OK'}.`,
+    extractedKey
+  };
+}
+
+// ==========================================
+// VISUAL EDITOR LAYOUT DATA MODELS & HELPERS
+// ==========================================
+
+export interface LayoutElement {
+  id: string;
+  type: 'header' | 'carousel' | 'gallery' | 'footer' | 'sidemenu' | 'banner' | 'button' | 'text_block' | 'image_block' | 'section';
+  title: string;
+  subtitle?: string;
+  content?: string;
+  image_url?: string;
+  icon_name?: string;
+  link_target?: string;
+  order: number;
+  visible: boolean;
+  is_protected?: boolean;
+  styles: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+    fontSize?: number;
+    bgColor?: string;
+    textColor?: string;
+    borderColor?: string;
+    borderRadius?: number;
+    padding?: number;
+    margin?: number;
+    textAlign?: 'left' | 'center' | 'right';
+  };
+  deviceOverrides?: {
+    mobile?: Partial<LayoutElement['styles']>;
+    tablet?: Partial<LayoutElement['styles']>;
+    desktop?: Partial<LayoutElement['styles']>;
+  };
+}
+
+export interface AppLayoutConfig {
+  id: string;
+  version: number;
+  status: 'draft' | 'published';
+  updated_at: string;
+  updated_by?: string;
+  header: {
+    visible: boolean;
+    title: string;
+    subtitle: string;
+    logoText: string;
+    slogan: string;
+    bgColor: string;
+    textColor: string;
+    accentColor: string;
+    height: number;
+    showNotificationBell: boolean;
+  };
+  carousel: {
+    visible: boolean;
+    autoPlay: boolean;
+    intervalSeconds: number;
+    height: number;
+  };
+  gallery: {
+    visible: boolean;
+    columnsMobile: number;
+    columnsDesktop: number;
+    aspectRatio: string;
+  };
+  footer: {
+    visible: boolean;
+    bgColor: string;
+    activeTabColor: string;
+    items: Array<{
+      id: string;
+      label: string;
+      iconName: string;
+      visible: boolean;
+      order: number;
+    }>;
+  };
+  sideMenu: {
+    visible: boolean;
+    bgColor: string;
+    items: Array<{
+      id: string;
+      label: string;
+      iconName: string;
+      visible: boolean;
+      order: number;
+    }>;
+  };
+  elements: LayoutElement[];
+}
+
+export const DEFAULT_LAYOUT_CONFIG: AppLayoutConfig = {
+  id: 'default-layout',
+  version: 1,
+  status: 'published',
+  updated_at: new Date().toISOString(),
+  header: {
+    visible: true,
+    title: 'Bela Mulher',
+    subtitle: 'Salão & Estética',
+    logoText: 'BM',
+    slogan: 'Excelência em beleza, estética e cuidado VIP',
+    bgColor: '#030712',
+    textColor: '#ffffff',
+    accentColor: '#f59e0b',
+    height: 72,
+    showNotificationBell: true
+  },
+  carousel: {
+    visible: true,
+    autoPlay: true,
+    intervalSeconds: 4,
+    height: 260
+  },
+  gallery: {
+    visible: true,
+    columnsMobile: 1,
+    columnsDesktop: 3,
+    aspectRatio: '9/16'
+  },
+  footer: {
+    visible: true,
+    bgColor: '#030712',
+    activeTabColor: '#f59e0b',
+    items: [
+      { id: 'home', label: 'Início', iconName: 'Home', visible: true, order: 1 },
+      { id: 'cliente', label: 'Cliente', iconName: 'User', visible: true, order: 2 },
+      { id: 'prof', label: 'Profissional', iconName: 'Briefcase', visible: true, order: 3 },
+      { id: 'vitrine', label: 'Vitrine', iconName: 'LayoutGrid', visible: true, order: 4 },
+      { id: 'chat', label: 'Chat', iconName: 'MessageCircle', visible: true, order: 5 },
+    ]
+  },
+  sideMenu: {
+    visible: true,
+    bgColor: '#030712',
+    items: [
+      { id: 'home', label: 'Início', iconName: 'Home', visible: true, order: 1 },
+      { id: 'vitrine', label: 'Vitrine', iconName: 'LayoutGrid', visible: true, order: 2 },
+      { id: 'galeria', label: 'Galeria', iconName: 'Image', visible: true, order: 3 },
+      { id: 'cliente', label: 'Área do Cliente', iconName: 'User', visible: true, order: 4 },
+      { id: 'prof', label: 'Área Profissional', iconName: 'Briefcase', visible: true, order: 5 },
+      { id: 'chat', label: 'Chat', iconName: 'MessageCircle', visible: true, order: 6 },
+      { id: 'info', label: 'Informações', iconName: 'Info', visible: true, order: 7 },
+      { id: 'social', label: 'Redes Sociais', iconName: 'Globe', visible: true, order: 8 },
+    ]
+  },
+  elements: [
+    {
+      id: 'elem-header',
+      type: 'header',
+      title: 'Cabeçalho Institucional',
+      order: 1,
+      visible: true,
+      is_protected: true,
+      styles: { padding: 12, borderRadius: 16 }
+    },
+    {
+      id: 'elem-carousel',
+      type: 'carousel',
+      title: 'Carrossel Promocional',
+      order: 2,
+      visible: true,
+      is_protected: true,
+      styles: { margin: 8 }
+    },
+    {
+      id: 'elem-gallery',
+      type: 'gallery',
+      title: 'Galeria 9:16 Verticais',
+      order: 3,
+      visible: true,
+      is_protected: true,
+      styles: { margin: 8 }
+    }
+  ]
+};
+
+// Add Layout methods to dataService
+export async function getLayoutConfig(status: 'published' | 'draft' = 'published'): Promise<AppLayoutConfig> {
+  const localKey = status === 'published' ? 'bela_mulher_layout_published' : 'bela_mulher_layout_draft';
+  const localData = localStorage.getItem(localKey);
+  
+  try {
+    const { data, error } = await supabase
+      .from('app_layout_configs')
+      .select('*')
+      .eq('status', status)
+      .order('version', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data && data.config_json) {
+      const parsed = typeof data.config_json === 'string' ? JSON.parse(data.config_json) : data.config_json;
+      localStorage.setItem(localKey, JSON.stringify(parsed));
+      return parsed;
+    }
+  } catch (err) {
+    console.warn('Supabase layout fetch fallback to localStorage:', err);
+  }
+
+  if (localData) {
+    try {
+      return JSON.parse(localData);
+    } catch {}
+  }
+
+  return DEFAULT_LAYOUT_CONFIG;
+}
+
+export async function saveLayoutDraft(config: AppLayoutConfig): Promise<{ success: boolean; config: AppLayoutConfig }> {
+  const updatedConfig: AppLayoutConfig = {
+    ...config,
+    status: 'draft',
+    updated_at: new Date().toISOString()
+  };
+
+  localStorage.setItem('bela_mulher_layout_draft', JSON.stringify(updatedConfig));
+
+  try {
+    await supabase.from('app_layout_configs').upsert({
+      id: `draft-${Date.now()}`,
+      version: updatedConfig.version,
+      status: 'draft',
+      config_json: JSON.stringify(updatedConfig),
+      updated_at: updatedConfig.updated_at
+    });
+  } catch (err) {
+    console.warn('Supabase save draft error, fallback saved locally:', err);
+  }
+
+  return { success: true, config: updatedConfig };
+}
+
+export async function publishLayoutConfig(config: AppLayoutConfig): Promise<{ success: boolean; config: AppLayoutConfig }> {
+  const newVersion = (config.version || 1) + 1;
+  const publishedConfig: AppLayoutConfig = {
+    ...config,
+    version: newVersion,
+    status: 'published',
+    updated_at: new Date().toISOString()
+  };
+
+  // Save to both published and draft slots in localStorage
+  localStorage.setItem('bela_mulher_layout_published', JSON.stringify(publishedConfig));
+  localStorage.setItem('bela_mulher_layout_draft', JSON.stringify(publishedConfig));
+
+  try {
+    await supabase.from('app_layout_configs').insert({
+      id: `v${newVersion}-${Date.now()}`,
+      version: newVersion,
+      status: 'published',
+      config_json: JSON.stringify(publishedConfig),
+      updated_at: publishedConfig.updated_at
+    });
+  } catch (err) {
+    console.warn('Supabase publish layout error, published locally:', err);
+  }
+
+  // Dispatch event for instant real-time sync across open tabs/views
+  window.dispatchEvent(new CustomEvent('bela_layout_published', { detail: publishedConfig }));
+
+  return { success: true, config: publishedConfig };
+}
+
+export async function getLayoutHistory(): Promise<Array<{ id: string; version: number; status: string; updated_at: string; config: AppLayoutConfig }>> {
+  try {
+    const { data, error } = await supabase
+      .from('app_layout_configs')
+      .select('*')
+      .order('version', { ascending: false })
+      .limit(20);
+
+    if (!error && data && data.length > 0) {
+      return data.map(item => ({
+        id: item.id,
+        version: item.version,
+        status: item.status,
+        updated_at: item.updated_at,
+        config: typeof item.config_json === 'string' ? JSON.parse(item.config_json) : item.config_json
+      }));
+    }
+  } catch (err) {
+    console.warn('History fetch fallback:', err);
+  }
+
+  // Fallback history list from local storage
+  const pub = localStorage.getItem('bela_mulher_layout_published');
+  if (pub) {
+    try {
+      const cfg = JSON.parse(pub);
+      return [{
+        id: 'local-published',
+        version: cfg.version || 1,
+        status: 'published',
+        updated_at: cfg.updated_at || new Date().toISOString(),
+        config: cfg
+      }];
+    } catch {}
+  }
+
+  return [{
+    id: 'default-v1',
+    version: 1,
+    status: 'published',
+    updated_at: DEFAULT_LAYOUT_CONFIG.updated_at,
+    config: DEFAULT_LAYOUT_CONFIG
+  }];
+}
+

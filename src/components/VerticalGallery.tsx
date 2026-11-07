@@ -73,32 +73,36 @@ export function VerticalGallery() {
   if (items.length === 0) return null;
 
   return (
-    <div className="space-y-4 mt-6">
-      {/* Header and Filter Pills */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-gray-800">
+    <div className="space-y-5 mt-8">
+      {/* Header and Filter Pills for "NOSSOS TRABALHOS" */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-500/25">
         <div>
-          <span className="text-[10px] text-amber-500 uppercase tracking-widest font-bold block mb-0.5">
-            Experiência Visual 9:16
+          <span className="text-[10px] sm:text-[11px] text-amber-400 font-extrabold uppercase tracking-widest block mb-0.5">
+            Produções VIP & Resultados Reais
           </span>
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Sparkles size={18} className="text-amber-400" />
-            <span>Vídeos & Fotos do Salão</span>
+          <h3 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5 tracking-tight">
+            <Sparkles size={20} className="text-amber-400" />
+            <span>Nossos Trabalhos</span>
           </h3>
         </div>
 
-        <div className="flex items-center gap-1.5 bg-black p-1 rounded-xl border border-gray-800 self-start sm:self-center">
+        <div className="flex items-center gap-1.5 bg-gray-950 p-1 rounded-2xl border border-amber-500/30 self-start sm:self-center shadow-lg">
           <button
             onClick={() => setActiveFilter('todos')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              activeFilter === 'todos' ? 'bg-amber-500 text-black shadow-md' : 'text-gray-400 hover:text-white'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              activeFilter === 'todos' 
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md font-black' 
+                : 'text-gray-400 hover:text-white'
             }`}
           >
             Todos ({items.length})
           </button>
           <button
             onClick={() => setActiveFilter('videos')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-              activeFilter === 'videos' ? 'bg-amber-500 text-black shadow-md' : 'text-gray-400 hover:text-white'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeFilter === 'videos' 
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md font-black' 
+                : 'text-gray-400 hover:text-white'
             }`}
           >
             <Film size={13} />
@@ -106,8 +110,10 @@ export function VerticalGallery() {
           </button>
           <button
             onClick={() => setActiveFilter('fotos')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-              activeFilter === 'fotos' ? 'bg-amber-500 text-black shadow-md' : 'text-gray-400 hover:text-white'
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+              activeFilter === 'fotos' 
+                ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-md font-black' 
+                : 'text-gray-400 hover:text-white'
             }`}
           >
             <Image size={13} />
@@ -117,41 +123,41 @@ export function VerticalGallery() {
       </div>
 
       {/* Responsive Grid: STRICTLY 1 column on mobile (< sm), 2 columns on tablet, 3 on desktop */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
         {filteredItems.map(item => (
           <div
             key={item.id}
             onClick={() => setSelectedItem(item)}
-            className="group relative aspect-[9/16] rounded-3xl overflow-hidden border border-gray-800 bg-gray-950 text-left transition-all duration-300 hover:border-amber-500/50 hover:shadow-2xl hover:shadow-amber-500/10 cursor-pointer shadow-lg"
+            className="group relative aspect-[9/16] rounded-[2rem] overflow-hidden border border-amber-500/25 bg-gray-950 text-left transition-all duration-300 hover:border-amber-400 hover:shadow-2xl hover:shadow-amber-500/15 cursor-pointer shadow-xl ring-1 ring-amber-500/10"
           >
             <img
               src={item.thumbnail}
               alt={item.title}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 opacity-85"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 opacity-90"
             />
             
             {/* Overlay Gradient */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/30 to-black/20 p-5 flex flex-col justify-between">
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-black/20 p-5 flex flex-col justify-between">
               {/* Top Tag & Indicator */}
               <div className="flex items-center justify-between">
-                <span className="px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-black/70 backdrop-blur-md text-amber-400 border border-amber-500/30">
+                <span className="px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-wider bg-black/80 backdrop-blur-md text-amber-300 border border-amber-500/40 shadow-md">
                   {item.tag || (item.type === 'video' ? 'Vídeo 9:16' : 'Foto 9:16')}
                 </span>
 
-                <div className="p-2.5 rounded-full bg-amber-500/90 text-black shadow-xl group-hover:scale-110 transition-transform">
+                <div className="p-2.5 rounded-full bg-amber-500 text-black shadow-xl group-hover:scale-110 transition-transform">
                   {item.type === 'video' ? <Play size={15} fill="currentColor" /> : <Eye size={15} />}
                 </div>
               </div>
 
               {/* Bottom Caption */}
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-amber-400 uppercase tracking-widest block">
+              <div className="space-y-1 bg-black/75 backdrop-blur-md p-3.5 rounded-2xl border border-amber-500/20">
+                <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest block">
                   {item.author || 'Salão Bela Mulher'}
                 </span>
                 <h4 className="text-sm font-bold text-white leading-snug line-clamp-2 group-hover:text-amber-200 transition-colors">
                   {item.title}
                 </h4>
-                <p className="text-[10px] text-gray-400">
+                <p className="text-[10px] text-gray-300/80 font-medium">
                   Toque para {item.type === 'video' ? 'assistir em tela cheia' : 'ampliar foto'}
                 </p>
               </div>

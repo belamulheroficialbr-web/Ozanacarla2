@@ -45,6 +45,8 @@ import {Charts3D} from './Charts3D';
 import {CouponManager} from './CouponManager';
 import {OrdersManager} from './OrdersManager';
 import {MediaManager} from './MediaManager';
+import {PixConfigManager} from './PixConfigManager';
+import {VisualEditor} from './VisualEditor';
 import {AdminChatManager} from './AdminChatManager';
 import {ProfessionalManager} from './ProfessionalManager';
 import {LoyaltyManager} from './LoyaltyManager';
@@ -78,6 +80,7 @@ const adminModuleGroups = [
     category: 'Comercial & Vendas',
     modules: [
       {id: 'pedidos', label: 'Pedidos', icon: ShoppingBag, desc: 'Vendas realizadas na sacola'},
+      {id: 'pix', label: 'Pagamento & Pix', icon: DollarSign, desc: 'Central de chaves Pix e validação QR Code'},
       {id: 'cupons', label: 'Cupons', icon: Tag, desc: 'Cupons de desconto e promoções'},
       {id: 'estoque', label: 'Estoque', icon: Package, desc: 'Produtos e controle de materiais'},
       {id: 'caixa', label: 'Gestão Financeira', icon: Briefcase, desc: 'DRE, comissões e fluxo de caixa'},
@@ -95,6 +98,7 @@ const adminModuleGroups = [
   {
     category: 'Ferramentas & Ajustes',
     modules: [
+      {id: 'editor_visual', label: 'Editor Visual Live', icon: Palette, desc: 'Arrraste, redimensione e edite a Home live'},
       {id: 'calculadora', label: 'Calculadora', icon: CalcIcon, desc: 'Cálculos rápidos e comissões'},
       {id: 'personalizacao', label: 'Personalização', icon: Palette, desc: 'Visual e marca do salão'},
       {id: 'config', label: 'Configurações', icon: Settings, desc: 'Parâmetros técnicos do sistema'},
@@ -287,32 +291,36 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
 
       {/* SIDEBAR GAVETA (Responsiva para Celular, Tablet e Desktop) */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-gray-950 border-r border-gray-800 p-4 sm:p-5 flex flex-col justify-between
-        transform transition-transform duration-300 ease-out lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none
+        fixed inset-y-0 left-0 z-50 w-64 max-w-[85vw] bg-gray-950 border-r border-gray-800 p-3.5 sm:p-4 flex flex-col justify-between
+        transform transition-transform duration-300 ease-out lg:relative lg:translate-x-0 shadow-2xl lg:shadow-none shrink-0
         ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
-        <div className="space-y-5">
-          <div className="flex items-center justify-between border-b border-gray-800/80 pb-3">
+        <div className="space-y-3 flex-1 flex flex-col min-h-0">
+          {/* Topo do Sidebar com identificação limpa do ADM e seta curta de recolhimento */}
+          <div className="flex items-center justify-between border-b border-gray-800/80 pb-2.5">
             <div>
-              <span className="text-[9px] text-amber-500 uppercase tracking-widest font-bold block">Salão Bela Mulher</span>
-              <h3 className="text-sm font-bold text-white tracking-tight">Painel de Gestão</h3>
+              <span className="text-[9px] text-amber-500 uppercase tracking-widest font-black block leading-none">Bela Mulher</span>
+              <h3 className="text-xs font-bold text-white tracking-tight mt-0.5">Painel Administrativo</h3>
             </div>
             <button 
               onClick={() => setIsMobileMenuOpen(false)}
-              className="lg:hidden p-2 text-gray-400 hover:text-white rounded-xl hover:bg-gray-900 transition-colors active:scale-90"
-              aria-label="Fechar menu"
+              className="p-1.5 text-gray-400 hover:text-amber-400 rounded-lg hover:bg-gray-900 transition-colors active:scale-90 flex items-center gap-1"
+              title="Recolher Menu ADM"
+              aria-label="Recolher Menu ADM"
             >
-              <ArrowLeft size={18} />
+              <ArrowLeft size={16} />
+              <span className="text-[10px] font-bold lg:hidden">Fechar</span>
             </button>
           </div>
 
-          <nav className="space-y-5 overflow-y-auto max-h-[calc(100vh-14rem)] pr-1 custom-scrollbar">
+          {/* Lista de Módulos Organizada em Grupos Compactos */}
+          <nav className="space-y-3.5 overflow-y-auto flex-1 pr-1 custom-scrollbar">
             {adminModuleGroups.map((group, gIdx) => (
-              <div key={gIdx} className="space-y-1.5">
-                <span className="text-[9px] uppercase font-black tracking-widest text-gray-600 px-3 block">
+              <div key={gIdx} className="space-y-1">
+                <span className="text-[8px] uppercase font-black tracking-widest text-amber-500/80 px-2 block">
                   {group.category}
                 </span>
-                <div className="space-y-1">
+                <div className="space-y-0.5">
                   {group.modules.map(mod => {
                     const Icon = mod.icon;
                     const isActive = activeModule === mod.id;
@@ -321,19 +329,19 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
                         key={mod.id}
                         onClick={() => handleSelectModule(mod.id)}
                         className={`
-                          w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs text-left transition-all duration-200
+                          w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs text-left transition-all duration-150
                           active:scale-[0.98]
                           ${isActive
-                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 font-bold shadow-lg shadow-amber-500/5'
+                            ? 'bg-amber-500/20 text-amber-400 border border-amber-500/35 font-bold shadow-sm shadow-amber-500/10'
                             : 'text-gray-400 hover:text-gray-100 hover:bg-white/5 border border-transparent font-medium'
                           }
                         `}
                       >
-                        <div className="flex items-center gap-3">
-                          <Icon size={18} className={isActive ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'} />
-                          <span>{mod.label}</span>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <Icon size={16} className={`shrink-0 ${isActive ? 'text-amber-400' : 'text-gray-500 group-hover:text-amber-400'}`} />
+                          <span className="truncate">{mod.label}</span>
                         </div>
-                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]"></div>}
+                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 shadow-[0_0_6px_rgba(251,191,36,0.8)]"></div>}
                       </button>
                     );
                   })}
@@ -343,24 +351,17 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           </nav>
         </div>
 
-        <div className="pt-5 border-t border-gray-800 space-y-3">
+        {/* Rodapé Interno da Gaveta: Botão Único de Saída */}
+        <div className="pt-3 mt-2 border-t border-gray-800/80 shrink-0">
           {onExitToPublic && (
             <button
               onClick={onExitToPublic}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-gray-900 hover:bg-amber-500/10 text-xs text-gray-400 hover:text-amber-400 font-bold border border-gray-800 hover:border-amber-500/30 transition-all active:scale-95"
+              className="w-full flex items-center justify-center gap-2 p-2.5 rounded-xl bg-gray-900 hover:bg-amber-500/10 text-xs text-amber-400 hover:text-amber-300 font-bold border border-gray-800 hover:border-amber-500/30 transition-all active:scale-95 shadow-sm"
             >
-              <ArrowLeft size={16} />
-              <span>Sair do ADM</span>
+              <ArrowLeft size={15} />
+              <span>Sair do Painel (Salão)</span>
             </button>
           )}
-
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-rose-950/20 hover:bg-rose-950/40 text-xs text-rose-500/80 hover:text-rose-400 font-bold border border-rose-900/20 hover:border-rose-900/40 transition-all active:scale-95"
-          >
-            <LogOut size={16} />
-            <span>Sair da Conta</span>
-          </button>
         </div>
       </aside>
 
@@ -549,6 +550,11 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           </div>
         )}
 
+        {/* MÓDULO 5.1: CONFIGURAÇÕES DE PIX */}
+        {activeModule === 'pix' && (
+          <PixConfigManager />
+        )}
+
         {/* MÓDULO 6: CUPONS DE DESCONTO */}
         {activeModule === 'cupons' && (
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
@@ -612,6 +618,11 @@ export function AdminPanel({onExitToPublic}: AdminPanelProps = {}) {
           <div className="bg-gray-900/90 border border-gray-800 p-5 rounded-3xl">
             <CustomizationPanel />
           </div>
+        )}
+
+        {/* MÓDULO 14.1: EDITOR VISUAL LIVE */}
+        {activeModule === 'editor_visual' && (
+          <VisualEditor />
         )}
 
         {/* MÓDULO 16: CENTRAL DE NOTIFICAÇÕES GESTÃO */}

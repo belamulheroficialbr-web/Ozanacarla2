@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {Bell, Check, CheckCheck, Trash2, Calendar, ShoppingBag, Info, X, Clock} from 'lucide-react';
+import {Bell, Check, CheckCheck, Trash2, Calendar, ShoppingBag, Info, X, Clock, MessageSquare} from 'lucide-react';
 import {dataService} from '../../lib/data';
 import {supabase} from '../../lib/supabase';
 import {useAuth} from '../../context/AuthContext';
@@ -57,6 +57,7 @@ export function NotificationCenter({onClose, isAdmin = false}: NotificationCente
 
   const getTypeIcon = (type: string) => {
     switch (type) {
+      case 'chat': return <MessageSquare size={14} className="text-amber-400" />;
       case 'appointment': return <Calendar size={14} className="text-amber-400" />;
       case 'order': return <ShoppingBag size={14} className="text-emerald-400" />;
       case 'system': return <Info size={14} className="text-blue-400" />;
