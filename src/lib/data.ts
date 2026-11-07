@@ -592,16 +592,15 @@ export const dataService = {
       if (!error && data) {
         const order = data[0];
         
-        // Record transaction & deduct stock if paid (idempotently guarded)
+        // Use new RPCs for atomic operations & preserve financial consistency
         if (safeUpdates.payment_status === 'pago') {
+          await supabase.rpc('confirm_order_payment_and_deduct_stock', { p_order_id: id });
           await this.processOrderFinancials(order);
-          await this.processOrderStockDeduction(order);
           await this.grantLoyaltyPointsFromOrder(order);
         }
 
-        // Automatic Stock, Financial and Loyalty Reversion if cancelled (idempotently guarded)
         if (safeUpdates.payment_status === 'cancelado' || safeUpdates.delivery_status === 'cancelado') {
-          await this.revertStockDeduction(order);
+          await supabase.rpc('cancel_order_and_revert_stock_atomic', { p_order_id: id, p_cancel_field: safeUpdates.payment_status === 'cancelado' ? 'payment_status' : 'delivery_status' });
           await this.revertOrderFinancials(order);
           await this.revertLoyaltyPointsFromOrder(order);
         }
@@ -1860,20 +1859,6 @@ export const dataService = {
 
     try {
       if (!order || !order.items) return { ...results, success: false };
-
-      // 1. Tentar execução atômica via RPC transacional do PostgreSQL se disponível
-      try {
-        const { data: rpcData, error: rpcError } = await supabase.rpc('process_order_stock_atomic', {
-          p_order_id: order.id,
-          p_items: order.items
-        });
-        if (!rpcError && rpcData) {
-          const res = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-          if (res && res.success) {
-            return res;
-          }
-        }
-      } catch {}
 
       for (const item of order.items) {
         try {
