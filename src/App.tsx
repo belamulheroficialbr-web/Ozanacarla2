@@ -603,13 +603,16 @@ export default function App() {
                         setIsSocialOpen(true);
                       }
                     },
-                    ...(isAdmin ? [{
+                    {
                       id: 'admin',
                       label: 'Painel de Controle',
                       icon: ShieldCheck,
                       desc: 'Gestão geral e relatórios administrativos',
-                      action: () => handleNavigate('admin')
-                    }] : [])
+                      action: () => {
+                        setSidebarOpen(false);
+                        setIsAdminLoginOpen(true);
+                      }
+                    }
                   ].map(item => {
                     const Icon = item.icon;
                     const isActive = activePanel === item.id;
@@ -1097,6 +1100,7 @@ export default function App() {
         onClose={() => setIsAccountSelectorOpen(false)}
         onSelectClient={() => handleNavigate('cliente')}
         onSelectProfessional={() => handleNavigate('prof')}
+        onSelectAdmin={() => setIsAdminLoginOpen(true)}
       />
 
       <AdminLoginModal

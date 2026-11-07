@@ -73,6 +73,22 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 });
 
+export const createSupabaseClient = (storageKey: string) => createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    storageKey,
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+  },
+  global: {
+    headers: { 'x-client-info': 'bela-mulher-app' },
+  },
+});
+
+export const clientAdmin = createSupabaseClient('sb-admin-auth-token');
+export const clientProf = createSupabaseClient('sb-prof-auth-token');
+export const clientClient = createSupabaseClient('sb-client-auth-token');
+
 export function setSupabaseConfig(url: string, key: string) {
   localStorage.setItem('SUPABASE_URL', url.trim());
   localStorage.setItem('SUPABASE_ANON_KEY', key.trim());

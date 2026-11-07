@@ -1,4 +1,6 @@
-import {supabase} from './supabase';
+import { clientClient } from './supabase';
+
+
 
 const INITIAL_TRANSACTIONS = [
   {
@@ -245,11 +247,11 @@ const INITIAL_NOTIFICATIONS: any[] = [
   }
 ];
 
-export const dataService = {
+export const createDataService = (supabaseClient: any) => ({
   // 1. Profiles & Cadastro
   async getProfiles(roleFilter?: string) {
     try {
-      let query = supabase.from('profiles').select('*');
+      let query = supabaseClient.from('profiles').select('*');
       if (roleFilter) query = query.eq('role', roleFilter);
       const res = await query;
       if (!res.error && res.data && res.data.length > 0) return res;
@@ -287,7 +289,7 @@ export const dataService = {
 
   async getProfile(userId: string) {
     try {
-      const res = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      const res = await supabaseClient.from('profiles').select('*').eq('id', userId).maybeSingle();
       if (!res.error && res.data) return res;
     } catch (err: any) {}
 
@@ -304,7 +306,7 @@ export const dataService = {
     try {
       // O banco de dados agora possui um gatilho que impede a alteração de role por usuários comuns.
       // Removemos explicitamente para evitar erros de validação no cliente.
-      const res = await supabase.from('profiles').update(safeData).eq('id', userId).select('*');
+      const res = await supabaseClient.from('profiles').update(safeData).eq('id', userId).select('*');
       if (!res.error && res.data && res.data.length > 0) return res;
     } catch {}
 
@@ -352,7 +354,7 @@ export const dataService = {
     try {
       // A política RLS agora protege automaticamente estas colunas.
       // Se o usuário não tiver permissão, os campos retornarão nulos.
-      const {data, error} = await supabase
+      const {data, error} = await supabaseClient
         .from('profiles')
         .select('allergies, sensitivities, reactive_products, care_preferences, favorite_professionals')
         .eq('id', userId)
@@ -379,7 +381,7 @@ export const dataService = {
 
   async updateClientMedicalProfile(userId: string, data: any) {
     try {
-      const {error} = await supabase.from('profiles').update({
+      const {error} = await supabaseClient.from('profiles').update({
         allergies: data.allergies,
         sensitivities: data.sensitivities,
         reactive_products: data.reactive_products,
@@ -396,7 +398,7 @@ export const dataService = {
   // 3. Pedidos & Sacola de Compras
   async getOrders(userId?: string) {
     try {
-      let query = supabase.from('orders').select('*').order('created_at', {ascending: false});
+      let query = supabaseClient.from('orders').select('*').order('created_at', {ascending: false});
       if (userId) {
         if (userId.includes('@')) {
           query = query.eq('client_email', userId);
@@ -470,7 +472,7 @@ export const dataService = {
   },
 
   async addOrder(order: any) {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabaseClient.auth.getSession();
     const userId = session?.user?.id;
 
     // 1. Revalidação estrita de estoque e preços em tempo real
@@ -492,7 +494,7 @@ export const dataService = {
 
     // 2. Registro no Supabase (Estoque PERMANECE intacto até confirmação legítima de pagamento)
     try {
-      const {data, error} = await supabase.from('orders').insert([newOrd]).select('*');
+      const {data, error} = await supabaseClient.from('orders').insert([newOrd]).select('*');
       if (!error && data) {
         // REGRA DE SEGURANÇA: Baixa de estoque NÃO ocorre na criação pendente.
         // O débito é acionado idempotentemente quando payment_status transita para 'pago'.
@@ -545,12 +547,12 @@ export const dataService = {
   async updateOrderStatus(id: string, statusUpdates: {payment_status?: string; delivery_status?: string}, requesterRole?: string) {
     // 3. Prevent unauthorized users from confirming payments (verified against authoritative profiles table)
     if (statusUpdates.payment_status === 'pago') {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session } } = await supabaseClient.auth.getSession();
       const userId = session?.user?.id;
       let userRole = requesterRole;
       if (userId) {
         try {
-          const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
+          const { data: profile } = await supabaseClient.from('profiles').select('role').eq('id', userId).maybeSingle();
           if (profile?.role) userRole = profile.role;
         } catch {}
       }
@@ -566,7 +568,7 @@ export const dataService = {
 
     try {
       // Fetch current order state to verify cancel status and idempotency
-      const { data: currentOrderData } = await supabase.from('orders').select('*').eq('id', id).single();
+      const { data: currentOrderData } = await supabaseClient.from('orders').select('*').eq('id', id).single();
       if (currentOrderData) {
         // 4. Prevent cancelled order from being confirmed later
         if (currentOrderData.payment_status === 'cancelado' || currentOrderData.delivery_status === 'cancelado') {
@@ -583,25 +585,25 @@ export const dataService = {
 
       // 5. Record who confirmed and when
       if (statusUpdates.payment_status === 'pago') {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await supabaseClient.auth.getSession();
         safeUpdates.confirmed_at = new Date().toISOString();
         safeUpdates.confirmed_by = session?.user?.email || session?.user?.id || requesterRole || 'admin';
       }
 
-      const {data, error} = await supabase.from('orders').update(safeUpdates).eq('id', id).select('*');
+      const {data, error} = await supabaseClient.from('orders').update(safeUpdates).eq('id', id).select('*');
       if (!error && data) {
         const order = data[0];
         
         // Use exact RPC names and preserve original financial/loyalty routines
         if (safeUpdates.payment_status === 'pago') {
-          const { error: rpcError } = await supabase.rpc('confirm_order_payment_and_deduct_stock', { p_order_id: id });
+          const { error: rpcError } = await supabaseClient.rpc('confirm_order_payment_and_deduct_stock', { p_order_id: id });
           if (rpcError) throw rpcError;
           await this.processOrderFinancials(order);
           await this.grantLoyaltyPointsFromOrder(order);
         }
 
         if (safeUpdates.payment_status === 'cancelado') {
-          const { error: rpcError } = await supabase.rpc('cancel_order_and_revert_stock_atomic', { p_order_id: id, p_cancel_field: 'payment_status' });
+          const { error: rpcError } = await supabaseClient.rpc('cancel_order_and_revert_stock_atomic', { p_order_id: id, p_cancel_field: 'payment_status' });
           if (rpcError) throw rpcError;
           await this.revertOrderFinancials(order);
           await this.revertLoyaltyPointsFromOrder(order);
@@ -638,7 +640,7 @@ export const dataService = {
   // 4. Cupons de Desconto
   async getCoupons() {
     try {
-      const {data, error} = await supabase.from('coupons').select('*');
+      const {data, error} = await supabaseClient.from('coupons').select('*');
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -651,7 +653,7 @@ export const dataService = {
   async addCoupon(coupon: any) {
     const newCoup = {...coupon, id: `coup-${Date.now()}`};
     try {
-      const {data, error} = await supabase.from('coupons').insert([newCoup]).select('*');
+      const {data, error} = await supabaseClient.from('coupons').insert([newCoup]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -664,7 +666,7 @@ export const dataService = {
 
   async updateCoupon(id: string, updates: any) {
     try {
-      const {data, error} = await supabase.from('coupons').update(updates).eq('id', id).select('*');
+      const {data, error} = await supabaseClient.from('coupons').update(updates).eq('id', id).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -677,7 +679,7 @@ export const dataService = {
 
   async deleteCoupon(id: string) {
     try {
-      const {error} = await supabase.from('coupons').delete().eq('id', id);
+      const {error} = await supabaseClient.from('coupons').delete().eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -691,7 +693,7 @@ export const dataService = {
   // 5. Banners & Vídeos 9:16
   async getBanners() {
     try {
-      const {data, error} = await supabase.from('banners').select('*').eq('is_active', true);
+      const {data, error} = await supabaseClient.from('banners').select('*').eq('is_active', true);
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -704,7 +706,7 @@ export const dataService = {
   async addBanner(banner: any) {
     const newBan = {...banner, id: `ban-${Date.now()}`};
     try {
-      const {data, error} = await supabase.from('banners').insert([newBan]).select('*');
+      const {data, error} = await supabaseClient.from('banners').insert([newBan]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -717,7 +719,7 @@ export const dataService = {
 
   async deleteBanner(id: string) {
     try {
-      const {error} = await supabase.from('banners').delete().eq('id', id);
+      const {error} = await supabaseClient.from('banners').delete().eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -730,7 +732,7 @@ export const dataService = {
 
   async getVideos916() {
     try {
-      const {data, error} = await supabase.from('videos_916').select('*');
+      const {data, error} = await supabaseClient.from('videos_916').select('*');
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -743,7 +745,7 @@ export const dataService = {
   async addVideo916(video: any) {
     const newVid = {...video, id: `vid-${Date.now()}`};
     try {
-      const {data, error} = await supabase.from('videos_916').insert([newVid]).select('*');
+      const {data, error} = await supabaseClient.from('videos_916').insert([newVid]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -756,7 +758,7 @@ export const dataService = {
 
   async deleteVideo916(id: string) {
     try {
-      const {error} = await supabase.from('videos_916').delete().eq('id', id);
+      const {error} = await supabaseClient.from('videos_916').delete().eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -770,7 +772,7 @@ export const dataService = {
   // 5.1 Vitrines Comerciais
   async getShowcases() {
     try {
-      const {data, error} = await supabase.from('showcases').select('*').order('created_at', {ascending: true});
+      const {data, error} = await supabaseClient.from('showcases').select('*').order('created_at', {ascending: true});
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -787,7 +789,7 @@ export const dataService = {
       created_at: new Date().toISOString()
     };
     try {
-      const {data, error} = await supabase.from('showcases').insert([newShowcase]).select('*');
+      const {data, error} = await supabaseClient.from('showcases').insert([newShowcase]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -800,7 +802,7 @@ export const dataService = {
 
   async updateShowcase(id: string, updates: any) {
     try {
-      const {data, error} = await supabase.from('showcases').update(updates).eq('id', id).select('*');
+      const {data, error} = await supabaseClient.from('showcases').update(updates).eq('id', id).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -816,7 +818,7 @@ export const dataService = {
       return {error: 'A Vitrine Principal não pode ser removida.'};
     }
     try {
-      const {error} = await supabase.from('showcases').delete().eq('id', id);
+      const {error} = await supabaseClient.from('showcases').delete().eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -830,7 +832,7 @@ export const dataService = {
   // 6. Mensagens Cliente <-> Profissional (Tabelas 'messages' e 'conversations')
   async getDirectMessages(senderId: string, receiverId: string) {
     try {
-      const {data, error} = await supabase
+      const {data, error} = await supabaseClient
         .from('messages')
         .select('*')
         .or(`and(sender_id.eq.${senderId},receiver_id.eq.${receiverId}),and(sender_id.eq.${receiverId},receiver_id.eq.${senderId})`)
@@ -854,7 +856,7 @@ export const dataService = {
   },
 
   async sendDirectMessage(msg: any) {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabaseClient.auth.getSession();
     const userId = session?.user?.id;
 
     const newMsg = {
@@ -866,7 +868,7 @@ export const dataService = {
     };
 
     try {
-      const {data, error} = await supabase.from('messages').insert([newMsg]).select('*');
+      const {data, error} = await supabaseClient.from('messages').insert([newMsg]).select('*');
       if (!error && data) {
         if (newMsg.receiver_id) {
           await this.addNotification({
@@ -902,7 +904,7 @@ export const dataService = {
 
   async markChatMessagesAsRead(userId: string, senderId: string) {
     try {
-      await supabase
+      await supabaseClient
         .from('messages')
         .update({ is_read: true })
         .eq('receiver_id', userId)
@@ -910,7 +912,7 @@ export const dataService = {
     } catch {}
 
     try {
-      await supabase
+      await supabaseClient
         .from('notifications')
         .update({ is_read: true })
         .eq('user_id', userId)
@@ -925,7 +927,7 @@ export const dataService = {
   // Services
   async getServices() {
     try {
-      const {data, error} = await supabase.from('services').select('*');
+      const {data, error} = await supabaseClient.from('services').select('*');
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -968,7 +970,7 @@ export const dataService = {
 
   async addService(service: any) {
     try {
-      const res = await supabase.from('services').insert([service]).select('*');
+      const res = await supabaseClient.from('services').insert([service]).select('*');
       if (!res.error && res.data) return res;
     } catch {}
     return {data: [{...service, id: `serv-${Date.now()}`}], error: null};
@@ -976,7 +978,7 @@ export const dataService = {
 
   async updateService(id: string, updates: any) {
     try {
-      const res = await supabase.from('services').update(updates).eq('id', id).select('*');
+      const res = await supabaseClient.from('services').update(updates).eq('id', id).select('*');
       if (!res.error && res.data) return res;
     } catch {}
     return {data: [{...updates, id}], error: null};
@@ -984,7 +986,7 @@ export const dataService = {
 
   async deleteService(id: string) {
     try {
-      const res = await supabase.from('services').delete().eq('id', id);
+      const res = await supabaseClient.from('services').delete().eq('id', id);
       if (!res.error) return res;
     } catch {}
     return {error: null};
@@ -993,7 +995,7 @@ export const dataService = {
   // Appointments
   async getAppointments(userId: string, role: string) {
     try {
-      let query = supabase.from('appointments').select('*');
+      let query = supabaseClient.from('appointments').select('*');
       if (role === 'client') query = query.eq('client_id', userId);
       else if (role === 'professional') query = query.eq('professional_id', userId);
       const res = await query;
@@ -1023,7 +1025,7 @@ export const dataService = {
 
     const newApp = {...appointment, id: `app-${Date.now()}`};
     try {
-      const res = await supabase.from('appointments').insert([appointment]).select('*, services(name), professional:profiles!professional_id(name)').single();
+      const res = await supabaseClient.from('appointments').insert([appointment]).select('*, services(name), professional:profiles!professional_id(name)').single();
       if (!res.error && res.data) {
         // Notify Client
         await this.addNotification({
@@ -1060,7 +1062,7 @@ export const dataService = {
 
   async updateAppointment(id: string, updates: any) {
     try {
-      const res = await supabase.from('appointments').update(updates).eq('id', id).select('*');
+      const res = await supabaseClient.from('appointments').update(updates).eq('id', id).select('*');
       if (!res.error && res.data) return res;
     } catch {}
     return {data: [{...updates, id}], error: null};
@@ -1068,7 +1070,7 @@ export const dataService = {
 
   async deleteAppointment(id: string) {
     try {
-      const res = await supabase.from('appointments').delete().eq('id', id);
+      const res = await supabaseClient.from('appointments').delete().eq('id', id);
       if (!res.error) return res;
     } catch {}
     return {error: null};
@@ -1076,7 +1078,7 @@ export const dataService = {
 
   async updateAppointmentStatus(id: string, status: string, requesterRole?: string) {
     try {
-      const res = await supabase.from('appointments').update({status}).eq('id', id).select('*, services(name)').single();
+      const res = await supabaseClient.from('appointments').update({status}).eq('id', id).select('*, services(name)').single();
       if (!res.error && res.data) {
         // Notify Client
         const statusMap: any = {
@@ -1124,7 +1126,7 @@ export const dataService = {
     }
 
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseClient
         .from('appointments')
         .update({ professional_id: newProfessionalId })
         .eq('id', appointmentId)
@@ -1142,7 +1144,7 @@ export const dataService = {
   // Transactions / Cash Flow
   async getTransactions() {
     try {
-      const { data, error } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+      const { data, error } = await supabaseClient.from('transactions').select('*').order('date', { ascending: false });
       if (!error) {
         // Supabase connected successfully: return real data (even if empty []), distinguishing absence of records from connection failure
         return { data: data || [], error: null };
@@ -1163,7 +1165,7 @@ export const dataService = {
       status: transaction.status || 'pago' // Default to paid
     };
     try {
-      const {data, error} = await supabase.from('transactions').insert([newTx]).select('*');
+      const {data, error} = await supabaseClient.from('transactions').insert([newTx]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1176,7 +1178,7 @@ export const dataService = {
 
   async updateTransaction(id: string, updates: any) {
     try {
-      const {data, error} = await supabase.from('transactions').update(updates).eq('id', id).select('*');
+      const {data, error} = await supabaseClient.from('transactions').update(updates).eq('id', id).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1189,7 +1191,7 @@ export const dataService = {
 
   async deleteTransaction(id: string) {
     try {
-      const {error} = await supabase.from('transactions').delete().eq('id', id);
+      const {error} = await supabaseClient.from('transactions').delete().eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -1203,7 +1205,7 @@ export const dataService = {
   // Products / Inventory
   async getProducts() {
     try {
-      const {data, error} = await supabase.from('products').select('*');
+      const {data, error} = await supabaseClient.from('products').select('*');
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -1216,7 +1218,7 @@ export const dataService = {
   async addProduct(product: any) {
     const newProd = {...product, id: `prod-${Date.now()}`};
     try {
-      const {data, error} = await supabase.from('products').insert([product]).select('*');
+      const {data, error} = await supabaseClient.from('products').insert([product]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1229,7 +1231,7 @@ export const dataService = {
 
   async updateProduct(id: string, updates: any) {
     try {
-      const {data, error} = await supabase.from('products').update(updates).eq('id', id).select('*');
+      const {data, error} = await supabaseClient.from('products').update(updates).eq('id', id).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1242,7 +1244,7 @@ export const dataService = {
 
   async deleteProduct(id: string) {
     try {
-      const {error} = await supabase.from('products').delete().eq('id', id);
+      const {error} = await supabaseClient.from('products').delete().eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -1256,7 +1258,7 @@ export const dataService = {
   // Stock Movements
   async getStockMovements() {
     try {
-      const {data, error} = await supabase.from('stock_movements').select('*').order('date', {ascending: false});
+      const {data, error} = await supabaseClient.from('stock_movements').select('*').order('date', {ascending: false});
       if (!error && data && data.length > 0) return {data, error: null};
     } catch {}
 
@@ -1273,7 +1275,7 @@ export const dataService = {
       date: movement.date || new Date().toISOString()
     };
     try {
-      const {data, error} = await supabase.from('stock_movements').insert([newMov]).select('*');
+      const {data, error} = await supabaseClient.from('stock_movements').insert([newMov]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1287,7 +1289,7 @@ export const dataService = {
   // 7. Notificações
   async getNotifications(userId?: string) {
     try {
-      let query = supabase.from('notifications').select('*').order('created_at', {ascending: false});
+      let query = supabaseClient.from('notifications').select('*').order('created_at', {ascending: false});
       if (userId) query = query.eq('user_id', userId);
       const {data, error} = await query;
       if (!error && data) return {data, error: null};
@@ -1311,7 +1313,7 @@ export const dataService = {
     };
 
     try {
-      const {data, error} = await supabase.from('notifications').insert([newNotif]).select('*');
+      const {data, error} = await supabaseClient.from('notifications').insert([newNotif]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
 
@@ -1324,7 +1326,7 @@ export const dataService = {
 
   async markNotificationAsRead(id: string) {
     try {
-      const {error} = await supabase.from('notifications').update({is_read: true}).eq('id', id);
+      const {error} = await supabaseClient.from('notifications').update({is_read: true}).eq('id', id);
       if (!error) return {error: null};
     } catch {}
 
@@ -1337,7 +1339,7 @@ export const dataService = {
 
   async markAllNotificationsAsRead(userId: string) {
     try {
-      const {error} = await supabase.from('notifications').update({is_read: true}).eq('user_id', userId).eq('is_read', false);
+      const {error} = await supabaseClient.from('notifications').update({is_read: true}).eq('user_id', userId).eq('is_read', false);
       if (!error) return {error: null};
     } catch {}
 
@@ -1355,7 +1357,7 @@ export const dataService = {
       const tomorrowStart = new Date(now.getTime() + 24 * 60 * 60 * 1000);
       const tomorrowEnd = new Date(now.getTime() + 26 * 60 * 60 * 1000);
 
-      const { data: upcoming } = await supabase
+      const { data: upcoming } = await supabaseClient
         .from('appointments')
         .select('*, services(name), profiles:client_id(email)')
         .gte('start_time', tomorrowStart.toISOString())
@@ -1366,7 +1368,7 @@ export const dataService = {
 
       for (const app of upcoming) {
         // Check if reminder already sent (metadata.reminder_sent = true)
-        const { data: existing } = await supabase
+        const { data: existing } = await supabaseClient
           .from('notifications')
           .select('id')
           .eq('user_id', app.client_id)
@@ -1397,7 +1399,7 @@ export const dataService = {
   // 8. Programa de Fidelidade
   async getLoyaltyRewards() {
     try {
-      const {data, error} = await supabase.from('loyalty_rewards').select('*').eq('is_active', true).order('points_cost', {ascending: true});
+      const {data, error} = await supabaseClient.from('loyalty_rewards').select('*').eq('is_active', true).order('points_cost', {ascending: true});
       if (!error && data) return {data, error: null};
     } catch {}
     return {data: [], error: null};
@@ -1405,7 +1407,7 @@ export const dataService = {
 
   async getLoyaltyTransactions(userId?: string) {
     try {
-      let query = supabase.from('loyalty_transactions').select('*').order('created_at', {ascending: false});
+      let query = supabaseClient.from('loyalty_transactions').select('*').order('created_at', {ascending: false});
       if (userId) query = query.eq('user_id', userId);
       const {data, error} = await query;
       if (!error && data) return {data, error: null};
@@ -1415,7 +1417,7 @@ export const dataService = {
 
   async getLoyaltyConfig() {
     try {
-      const {data, error} = await supabase.from('loyalty_config').select('*').eq('id', 'current').single();
+      const {data, error} = await supabaseClient.from('loyalty_config').select('*').eq('id', 'current').single();
       if (!error && data) return {data, error: null};
     } catch {}
     return {data: {points_per_real: 1.0, min_points_to_redeem: 100}, error: null};
@@ -1423,7 +1425,7 @@ export const dataService = {
 
   async updateLoyaltyConfig(updates: any) {
     try {
-      const {data, error} = await supabase.from('loyalty_config').update(updates).eq('id', 'current').select('*');
+      const {data, error} = await supabaseClient.from('loyalty_config').update(updates).eq('id', 'current').select('*');
       if (!error && data) return {data, error: null};
     } catch {}
     return {error: 'Erro ao atualizar config'};
@@ -1432,7 +1434,7 @@ export const dataService = {
   async grantLoyaltyPointsFromAppointment(appointment: any) {
     try {
       // 1. Check if already granted
-      const {data: existing} = await supabase
+      const {data: existing} = await supabaseClient
         .from('loyalty_transactions')
         .select('id')
         .eq('related_id', appointment.id)
@@ -1446,7 +1448,7 @@ export const dataService = {
       const ratio = Number(config?.points_per_real || 1.0);
       
       // 3. Get service price to calculate points
-      const {data: service} = await supabase.from('services').select('price').eq('id', appointment.service_id).single();
+      const {data: service} = await supabaseClient.from('services').select('price').eq('id', appointment.service_id).single();
       const price = Number(service?.price || 0);
       const points = Math.floor(price * ratio);
 
@@ -1479,7 +1481,7 @@ export const dataService = {
       if (!order || !order.client_id || order.client_id === 'guest') return;
       
       // 1. Check if already granted
-      const {data: existing} = await supabase
+      const {data: existing} = await supabaseClient
         .from('loyalty_transactions')
         .select('id')
         .eq('related_id', order.id)
@@ -1523,7 +1525,7 @@ export const dataService = {
       if (!order || !order.client_id || order.client_id === 'guest') return;
 
       // 1. Localizar o ganho de pontos original
-      const { data: originalEarn } = await supabase
+      const { data: originalEarn } = await supabaseClient
         .from('loyalty_transactions')
         .select('*')
         .eq('related_id', order.id)
@@ -1533,7 +1535,7 @@ export const dataService = {
       if (!originalEarn) return; // Se nunca ganhou pontos, não há o que estornar
 
       // 2. Verificar se já existe estorno registrado (Idempotência contra duplo estorno)
-      const { data: existingReversal } = await supabase
+      const { data: existingReversal } = await supabaseClient
         .from('loyalty_transactions')
         .select('id')
         .eq('related_id', order.id)
@@ -1592,7 +1594,7 @@ export const dataService = {
 
   async addLoyaltyTransaction(tx: any) {
     try {
-      const {data, error} = await supabase.from('loyalty_transactions').insert([tx]).select('*');
+      const {data, error} = await supabaseClient.from('loyalty_transactions').insert([tx]).select('*');
       if (!error && data) {
         // Also update profiles loyalty_points balance
         try {
@@ -1600,7 +1602,7 @@ export const dataService = {
           if (prof) {
             const currentPoints = Number(prof.loyalty_points || 0);
             const newBalance = Math.max(0, currentPoints + Number(tx.amount || 0));
-            await supabase.from('profiles').update({ loyalty_points: newBalance }).eq('id', tx.user_id);
+            await supabaseClient.from('profiles').update({ loyalty_points: newBalance }).eq('id', tx.user_id);
           }
         } catch (e) {
           console.error('Erro ao atualizar saldo no perfil:', e);
@@ -1622,7 +1624,7 @@ export const dataService = {
       }
 
       // 2. Register redemption transaction (Negative amount)
-      const {data, error} = await supabase.from('loyalty_transactions').insert([{
+      const {data, error} = await supabaseClient.from('loyalty_transactions').insert([{
         user_id: userId,
         amount: -reward.points_cost,
         type: 'redeem',
@@ -1649,7 +1651,7 @@ export const dataService = {
 
   async addLoyaltyReward(reward: any) {
     try {
-      const {data, error} = await supabase.from('loyalty_rewards').insert([reward]).select('*');
+      const {data, error} = await supabaseClient.from('loyalty_rewards').insert([reward]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
     return {error: 'Erro ao criar recompensa'};
@@ -1657,7 +1659,7 @@ export const dataService = {
 
   async deleteLoyaltyReward(id: string) {
     try {
-      const {error} = await supabase.from('loyalty_rewards').update({is_active: false}).eq('id', id);
+      const {error} = await supabaseClient.from('loyalty_rewards').update({is_active: false}).eq('id', id);
       if (!error) return {error: null};
     } catch {}
     return {error: 'Erro ao desativar recompensa'};
@@ -1672,8 +1674,8 @@ export const dataService = {
       if (!clients) return {data: [], error: 'Nenhum cliente encontrado'};
 
       // 2. Get all appointments and orders to calculate metrics
-      const {data: allAppointments} = await supabase.from('appointments').select('*').eq('status', 'concluded');
-      const {data: allOrders} = await supabase.from('orders').select('*');
+      const {data: allAppointments} = await supabaseClient.from('appointments').select('*').eq('status', 'concluded');
+      const {data: allOrders} = await supabaseClient.from('orders').select('*');
 
       const now = new Date();
 
@@ -1727,7 +1729,7 @@ export const dataService = {
 
   async getCRMCampaigns() {
     try {
-      const {data, error} = await supabase.from('crm_campaigns').select('*').order('created_at', {ascending: false});
+      const {data, error} = await supabaseClient.from('crm_campaigns').select('*').order('created_at', {ascending: false});
       if (!error && data) return {data, error: null};
     } catch {}
     return {data: [], error: null};
@@ -1735,7 +1737,7 @@ export const dataService = {
 
   async createCRMCampaign(campaign: any) {
     try {
-      const {data, error} = await supabase.from('crm_campaigns').insert([campaign]).select('*');
+      const {data, error} = await supabaseClient.from('crm_campaigns').insert([campaign]).select('*');
       if (!error && data) return {data, error: null};
     } catch {}
     return {error: 'Erro ao criar campanha'};
@@ -1743,7 +1745,7 @@ export const dataService = {
 
   async sendCRMCampaign(campaignId: string, userIds: string[]) {
     try {
-      const {data: campaign} = await supabase.from('crm_campaigns').select('*').eq('id', campaignId).single();
+      const {data: campaign} = await supabaseClient.from('crm_campaigns').select('*').eq('id', campaignId).single();
       if (!campaign) return {error: 'Campanha não encontrada'};
 
       const logs = userIds.map(uid => ({
@@ -1753,7 +1755,7 @@ export const dataService = {
       }));
 
       // 1. Record Logs
-      await supabase.from('crm_campaign_logs').insert(logs);
+      await supabaseClient.from('crm_campaign_logs').insert(logs);
 
       // 2. Trigger Notifications for each user
       for (const uid of userIds) {
@@ -1767,7 +1769,7 @@ export const dataService = {
       }
 
       // 3. Update Campaign status
-      await supabase.from('crm_campaigns').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', campaignId);
+      await supabaseClient.from('crm_campaigns').update({status: 'sent', sent_at: new Date().toISOString()}).eq('id', campaignId);
 
       return {success: true};
     } catch (err) {
@@ -1779,7 +1781,7 @@ export const dataService = {
   async processConclusionFinancials(appointment: any) {
     try {
       // 1. Record Revenue Transaction (if not already recorded)
-      const {data: existingTx} = await supabase
+      const {data: existingTx} = await supabaseClient
         .from('transactions')
         .select('id')
         .eq('related_id', appointment.id)
@@ -1788,7 +1790,7 @@ export const dataService = {
 
       if (!existingTx) {
         // Get service price
-        const {data: service} = await supabase.from('services').select('price').eq('id', appointment.service_id).single();
+        const {data: service} = await supabaseClient.from('services').select('price').eq('id', appointment.service_id).single();
         const amount = Number(service?.price || 0);
 
         await this.addTransaction({
@@ -1809,7 +1811,7 @@ export const dataService = {
         
         if (rate > 0) {
           const commissionAmount = (amount * rate) / 100;
-          await supabase.from('commissions').insert([{
+          await supabaseClient.from('commissions').insert([{
             professional_id: appointment.professional_id,
             appointment_id: appointment.id,
             service_amount: amount,
@@ -1825,7 +1827,7 @@ export const dataService = {
   },
 
   async processOrderFinancials(order: any) {
-    const {data: existing, error: checkErr} = await supabase
+    const {data: existing, error: checkErr} = await supabaseClient
       .from('transactions')
       .select('id')
       .eq('related_id', order.id)
@@ -1864,7 +1866,7 @@ export const dataService = {
       for (const item of order.items) {
         try {
           // 1. Verificar se já processado (Idempotência estrita por produto e pedido)
-          const { data: existingMovs } = await supabase
+          const { data: existingMovs } = await supabaseClient
             .from('stock_movements')
             .select('id')
             .eq('related_id', order.id)
@@ -1878,7 +1880,7 @@ export const dataService = {
           }
 
           // 2. Revalidar produto e estoque disponível antes da baixa
-          const { data: prod } = await supabase
+          const { data: prod } = await supabaseClient
             .from('products')
             .select('id, quantity')
             .eq('id', item.id)
@@ -1894,7 +1896,7 @@ export const dataService = {
 
           // 3. Update atômico com Trava Otimista (impede saldo negativo)
           const newQty = prod.quantity - item.quantity;
-          const { error: updateErr } = await supabase
+          const { error: updateErr } = await supabaseClient
             .from('products')
             .update({ quantity: newQty })
             .eq('id', item.id)
@@ -1939,7 +1941,7 @@ export const dataService = {
     }
 
     try {
-      const { data: movs } = await supabase
+      const { data: movs } = await supabaseClient
         .from('stock_movements')
         .select('product_id, type')
         .eq('related_id', order.id);
@@ -1970,7 +1972,7 @@ export const dataService = {
 
       for (const item of order.items) {
         // 1. Verifica se existe movimentação para estornar
-        const { data: movs } = await supabase
+        const { data: movs } = await supabaseClient
           .from('stock_movements')
           .select('id, type')
           .eq('related_id', order.id)
@@ -1982,7 +1984,7 @@ export const dataService = {
         if (!hasSaida || hasEstorno) continue;
 
         // 2. Fetch produto atual
-        const { data: prod } = await supabase
+        const { data: prod } = await supabaseClient
           .from('products')
           .select('id, quantity')
           .eq('id', item.id)
@@ -1991,7 +1993,7 @@ export const dataService = {
         if (!prod) continue;
 
         // 3. Incrementa estoque com trava otimista
-        const { error: updateErr } = await supabase
+        const { error: updateErr } = await supabaseClient
           .from('products')
           .update({ quantity: prod.quantity + item.quantity })
           .eq('id', item.id)
@@ -2050,7 +2052,7 @@ export const dataService = {
   },
 
   async revertOrderFinancials(order: any) {
-    const { data: originalTx, error: txErr } = await supabase
+    const { data: originalTx, error: txErr } = await supabaseClient
       .from('transactions')
       .select('amount')
       .eq('related_id', order.id)
@@ -2060,7 +2062,7 @@ export const dataService = {
     if (txErr) throw txErr;
     if (!originalTx) return;
 
-    const { data: existing, error: checkErr } = await supabase
+    const { data: existing, error: checkErr } = await supabaseClient
       .from('transactions')
       .select('id')
       .eq('related_id', order.id)
@@ -2084,7 +2086,7 @@ export const dataService = {
   },
 
   async revertAppointmentFinancials(appointment: any) {
-    const { data: originalTx } = await supabase
+    const { data: originalTx } = await supabaseClient
       .from('transactions')
       .select('amount')
       .eq('related_id', appointment.id)
@@ -2093,7 +2095,7 @@ export const dataService = {
 
     if (!originalTx) return;
 
-    const { data: existing } = await supabase
+    const { data: existing } = await supabaseClient
       .from('transactions')
       .select('id')
       .eq('related_id', appointment.id)
@@ -2113,7 +2115,7 @@ export const dataService = {
       related_type: 'appointment_reversal'
     });
 
-    const { data: comm } = await supabase
+    const { data: comm } = await supabaseClient
       .from('commissions')
       .select('*')
       .eq('appointment_id', appointment.id)
@@ -2131,13 +2133,13 @@ export const dataService = {
         related_id: appointment.id,
         related_type: 'commission_reversal'
       });
-      await supabase.from('commissions').update({ status: 'reversed' }).eq('id', comm.id);
+      await supabaseClient.from('commissions').update({ status: 'reversed' }).eq('id', comm.id);
     }
   },
 
   async getCommissions(professionalId?: string) {
     try {
-      let query = supabase.from('commissions').select('*, professional:profiles!professional_id(name), appointment:appointments!appointment_id(start_time, services(name))');
+      let query = supabaseClient.from('commissions').select('*, professional:profiles!professional_id(name), appointment:appointments!appointment_id(start_time, services(name))');
       if (professionalId) query = query.eq('professional_id', professionalId);
       const {data, error} = await query.order('created_at', {ascending: false});
       if (!error && data) return {data, error: null};
@@ -2147,11 +2149,11 @@ export const dataService = {
 
   async payCommission(id: string) {
     try {
-      const {data: comm} = await supabase.from('commissions').select('*').eq('id', id).single();
+      const {data: comm} = await supabaseClient.from('commissions').select('*').eq('id', id).single();
       if (!comm) return {error: 'Não encontrado'};
 
       // 1. Mark as paid
-      const {error} = await supabase.from('commissions').update({
+      const {error} = await supabaseClient.from('commissions').update({
         status: 'paid',
         paid_at: new Date().toISOString()
       }).eq('id', id);
@@ -2250,7 +2252,7 @@ export const dataService = {
     try {
       const stored = localStorage.getItem('BELA_PIX_CONFIG');
       if (stored) return { data: JSON.parse(stored), error: null };
-      const { data } = await supabase.from('salon_config').select('value').eq('key', 'pix_config').maybeSingle();
+      const { data } = await supabaseClient.from('salon_config').select('value').eq('key', 'pix_config').maybeSingle();
       if (data?.value) {
         localStorage.setItem('BELA_PIX_CONFIG', JSON.stringify(data.value));
         return { data: data.value, error: null };
@@ -2273,7 +2275,7 @@ export const dataService = {
   async savePixConfig(config: any) {
     try {
       localStorage.setItem('BELA_PIX_CONFIG', JSON.stringify(config));
-      await supabase.from('salon_config').upsert({ key: 'pix_config', value: config, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+      await supabaseClient.from('salon_config').upsert({ key: 'pix_config', value: config, updated_at: new Date().toISOString() }, { onConflict: 'key' });
       return { success: true, data: config, error: null };
     } catch (err: any) {
       localStorage.setItem('BELA_PIX_CONFIG', JSON.stringify(config));
@@ -2284,11 +2286,11 @@ export const dataService = {
   // Connection Check
   async testConnection() {
     try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
       if (sessionError) {
         return { success: false, message: `Erro Auth: ${sessionError.message}` };
       }
-      const { data, error } = await supabase.from('profiles').select('count', { count: 'exact', head: true });
+      const { data, error } = await supabaseClient.from('profiles').select('count', { count: 'exact', head: true });
       if (error) {
         if (error.message?.includes('Failed to fetch')) {
           return { success: false, message: 'Falha de conexão com a URL do Supabase (Failed to fetch).' };
@@ -2303,7 +2305,7 @@ export const dataService = {
       return { success: false, message: `Erro: ${err?.message || 'Falha de rede'}` };
     }
   }
-};
+});
 
 export function generatePixBrCode(params: {
   key: string;
@@ -2588,7 +2590,7 @@ export async function getLayoutConfig(status: 'published' | 'draft' = 'published
   const localData = localStorage.getItem(localKey);
   
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('app_layout_configs')
       .select('*')
       .eq('status', status)
@@ -2624,7 +2626,7 @@ export async function saveLayoutDraft(config: AppLayoutConfig): Promise<{ succes
   localStorage.setItem('bela_mulher_layout_draft', JSON.stringify(updatedConfig));
 
   try {
-    await supabase.from('app_layout_configs').upsert({
+    await supabaseClient.from('app_layout_configs').upsert({
       id: `draft-${Date.now()}`,
       version: updatedConfig.version,
       status: 'draft',
@@ -2652,7 +2654,7 @@ export async function publishLayoutConfig(config: AppLayoutConfig): Promise<{ su
   localStorage.setItem('bela_mulher_layout_draft', JSON.stringify(publishedConfig));
 
   try {
-    await supabase.from('app_layout_configs').insert({
+    await supabaseClient.from('app_layout_configs').insert({
       id: `v${newVersion}-${Date.now()}`,
       version: newVersion,
       status: 'published',
@@ -2671,7 +2673,7 @@ export async function publishLayoutConfig(config: AppLayoutConfig): Promise<{ su
 
 export async function getLayoutHistory(): Promise<Array<{ id: string; version: number; status: string; updated_at: string; config: AppLayoutConfig }>> {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await supabaseClient
       .from('app_layout_configs')
       .select('*')
       .order('version', { ascending: false })
@@ -2713,4 +2715,7 @@ export async function getLayoutHistory(): Promise<Array<{ id: string; version: n
     config: DEFAULT_LAYOUT_CONFIG
   }];
 }
+
+export const dataService = createDataService(clientClient);
+
 

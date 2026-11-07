@@ -1,11 +1,12 @@
 import React from 'react';
-import { User, Briefcase, X, ChevronRight } from 'lucide-react';
+import { User, Briefcase, X, ChevronRight, ShieldCheck } from 'lucide-react';
 
 interface AccountSelectorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSelectClient: () => void;
   onSelectProfessional: () => void;
+  onSelectAdmin: () => void;
 }
 
 export function AccountSelectorModal({
@@ -13,6 +14,7 @@ export function AccountSelectorModal({
   onClose,
   onSelectClient,
   onSelectProfessional,
+  onSelectAdmin,
 }: AccountSelectorModalProps) {
   if (!isOpen) return null;
 
@@ -103,6 +105,35 @@ export function AccountSelectorModal({
               </div>
             </div>
             <ChevronRight size={18} className="text-gray-500 group-hover:text-amber-400 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
+          </button>
+
+          {/* Opção 3: Área Administrativa */}
+          <button
+            onClick={() => {
+              onClose();
+              onSelectAdmin();
+            }}
+            className="w-full text-left p-4 rounded-2xl bg-gradient-to-r from-gray-900 via-gray-900/90 to-amber-950/20 border border-gray-800 hover:border-rose-500/40 transition-all duration-200 group shadow-lg active:scale-98 flex items-center justify-between"
+          >
+            <div className="flex items-start gap-3.5 min-w-0">
+              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-400 group-hover:bg-rose-500 group-hover:text-black transition-colors shrink-0">
+                <ShieldCheck size={22} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-white group-hover:text-rose-400 transition-colors">
+                    Painel Administrativo
+                  </h3>
+                  <span className="text-[9px] bg-rose-500/20 text-rose-300 px-2 py-0.5 rounded-full font-semibold border border-rose-500/30">
+                    ADM
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1 leading-relaxed">
+                  Acesso restrito para gestão de estoque, financeiro e configurações do salão.
+                </p>
+              </div>
+            </div>
+            <ChevronRight size={18} className="text-gray-500 group-hover:text-rose-400 group-hover:translate-x-1 transition-all shrink-0 ml-2" />
           </button>
         </div>
 

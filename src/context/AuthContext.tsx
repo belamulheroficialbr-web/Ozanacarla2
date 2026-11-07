@@ -1,5 +1,5 @@
 import {createContext, useContext, useEffect, useState} from 'react';
-import {supabase} from '../lib/supabase';
+import {clientAdmin, clientProf, clientClient} from '../lib/supabase';
 import {Session, User} from '@supabase/supabase-js';
 
 const AuthContext = createContext<{
@@ -7,6 +7,7 @@ const AuthContext = createContext<{
   user: User | null;
   role: string | null;
   loading: boolean;
+  activeClient: typeof clientClient; // Use a common type
   loginAsOwner?: () => void;
   logoutOwner?: () => void;
   refetchRole?: () => Promise<string | null>;
@@ -15,6 +16,7 @@ const AuthContext = createContext<{
   user: null,
   role: null,
   loading: true,
+  activeClient: clientClient,
 });
 
 export const OWNER_ADMIN_ID = '3b04173d-fb3a-4492-8501-e109b423ef88';
@@ -46,6 +48,9 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   });
   const [loading, setLoading] = useState(true);
 
+  // Determine active client based on role
+  const activeClient = role === 'admin' ? clientAdmin : (role === 'professional' ? clientProf : clientClient);
+
   useEffect(() => {
     if (localStorage.getItem('BELA_ADMIN_SESSION') === 'true') {
       setRole('admin');
@@ -53,7 +58,8 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       return;
     }
 
-    supabase.auth.getSession().then(({data: {session}}) => {
+    // Default to clientClient for initial session check
+    clientClient.auth.getSession().then(({data: {session}}) => {
       setSession(session);
       setUser(session?.user ?? null);
       if (session?.user) {
@@ -63,7 +69,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       }
     });
 
-    const {data: {subscription}} = supabase.auth.onAuthStateChange((_event, session) => {
+    const {data: {subscription}} = clientClient.auth.onAuthStateChange((_event, session) => {
       if (localStorage.getItem('BELA_ADMIN_SESSION') === 'true') {
         setRole('admin');
         setLoading(false);
@@ -95,8 +101,8 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
         normalizedEmail === 'oficial.belamulher@gmail.com' ||
         userId === OWNER_ADMIN_ID;
 
-      // Query true role from Supabase profiles table
-      const {data, error} = await supabase.from('profiles').select('role').eq('id', userId).maybeSingle();
+      // Query true role from Supabase profiles table - Use active client
+      const {data, error} = await activeClient.from('profiles').select('role').eq('id', userId).maybeSingle();
       
       let trueRole = 'client';
       if (!error && data?.role) {
@@ -104,7 +110,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
       } else {
         trueRole = isAdminEmail ? 'admin' : 'client';
         // Insert profile with true role if missing
-        await supabase.from('profiles').upsert({
+        await activeClient.from('profiles').upsert({
           id: userId,
           role: trueRole,
           name: email?.split('@')[0] || 'Usuário'
@@ -113,7 +119,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
 
       if (isAdminEmail && trueRole !== 'admin') {
         trueRole = 'admin';
-        await supabase.from('profiles').update({ role: 'admin' }).eq('id', userId);
+        await activeClient.from('profiles').update({ role: 'admin' }).eq('id', userId);
       }
 
       setRole(trueRole);
@@ -148,7 +154,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     setUser(null);
     setRole(null);
     setSession(null);
-    supabase.auth.signOut();
+    clientAdmin.auth.signOut();
     setLoading(false);
   }
 
@@ -160,7 +166,7 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   };
 
   return (
-    <AuthContext.Provider value={{session, user, role, loading, loginAsOwner, logoutOwner, refetchRole}}>
+    <AuthContext.Provider value={{session, user, role, loading, activeClient, loginAsOwner, logoutOwner, refetchRole}}>
       {children}
     </AuthContext.Provider>
   );

@@ -25,6 +25,7 @@ import {
 import { dataService } from '../lib/data';
 import { CartItem } from './SacolaModal';
 import { Carousel } from './Carousel';
+import { ImageFallback } from './ImageFallback';
 
 interface VitrineProps {
   onAddToCart?: (item: CartItem) => void;
@@ -460,13 +461,10 @@ export function Vitrine({ onAddToCart, onSelectServiceToBook }: VitrineProps) {
                   >
                     {/* Imagem e Badges */}
                     <div className="relative aspect-video bg-black overflow-hidden cursor-pointer" onClick={() => handleOpenProductModal(prod)}>
-                      <img
-                        src={
-                          prod.image_url ||
-                          '/src/assets/images/service_showcase_1_1793799836251.jpg'
-                        }
+                      <ImageFallback
+                        src={prod.image_url}
                         alt={prod.name}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        className="w-full h-full group-hover:scale-105 transition-transform duration-500"
                       />
 
                       {/* Status de Estoque */}
@@ -653,13 +651,10 @@ export function Vitrine({ onAddToCart, onSelectServiceToBook }: VitrineProps) {
 
             {/* Imagem do Produto */}
             <div className="relative aspect-video rounded-2xl overflow-hidden bg-black border border-gray-800">
-              <img
-                src={
-                  selectedProduct.image_url ||
-                  '/src/assets/images/service_showcase_1_1793799836251.jpg'
-                }
+              <ImageFallback
+                src={selectedProduct.image_url}
                 alt={selectedProduct.name}
-                className="w-full h-full object-cover"
+                className="w-full h-full"
               />
               <div className="absolute bottom-3 left-3">
                 <span className="px-2.5 py-1 rounded-lg bg-black/80 text-amber-400 text-[10px] font-bold uppercase tracking-wider border border-amber-500/30">
